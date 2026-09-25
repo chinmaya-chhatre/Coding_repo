@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
-from typing import Iterator
+from datetime import UTC, datetime
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
@@ -44,7 +44,7 @@ class EventStore:
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     source,
-                    datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    datetime.now(UTC).isoformat(timespec="seconds"),
                     json.dumps(headers),
                     body,
                     verification,

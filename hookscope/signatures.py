@@ -11,8 +11,8 @@ from __future__ import annotations
 import hashlib
 import hmac
 import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Callable, Mapping
 
 STRIPE_TOLERANCE_SECONDS = 300
 

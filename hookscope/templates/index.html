@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HookScope</title>
+  <style>
+    :root { --bg:#f7f7f8; --card:#fff; --text:#1b1b1f; --muted:#6b6b76; --border:#e3e3e8;
+            --ok:#1a7f37; --bad:#cf222e; --warn:#9a6700; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg:#111114; --card:#1b1b20; --text:#ececf1; --muted:#9a9aa6; --border:#2e2e36;
+              --ok:#3fb950; --bad:#f85149; --warn:#d29922; }
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; font:15px/1.5 system-ui, sans-serif; background:var(--bg); color:var(--text); }
+    main { max-width:960px; margin:0 auto; padding:24px 16px; }
+    h1 { margin:0 0 4px; font-size:24px; }
+    .muted { color:var(--muted); }
+    nav a { margin-right:12px; color:var(--text); }
+    nav a.active { font-weight:600; }
+    details { background:var(--card); border:1px solid var(--border); border-radius:8px; margin:8px 0; }
+    summary { padding:10px 14px; cursor:pointer; display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+    .badge { font-size:12px; padding:2px 8px; border-radius:999px; border:1px solid currentColor; }
+    .valid { color:var(--ok); } .invalid, .unsigned { color:var(--bad); } .no_secret { color:var(--warn); }
+    pre { margin:0; padding:12px 14px; overflow-x:auto; border-top:1px solid var(--border); font-size:13px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>HookScope</h1>
+  <p class="muted">Send webhooks to <code>/hooks/&lt;source&gt;</code>. Secrets configured for:
+    {{ configured | join(", ") if configured else "none" }}</p>
+  <nav>
+    <a href="/" class="{{ 'active' if not active }}">all</a>
+    {% for s in sources %}<a href="/?source={{ s }}" class="{{ 'active' if active == s }}">{{ s }}</a>{% endfor %}
+  </nav>
+  {% if not events %}
+    <p class="muted">No events yet. Try <code>python scripts/send_test_webhook.py</code>.</p>
+  {% endif %}
+  {% for e in events %}
+  <details>
+    <summary>
+      <strong>#{{ e.id }}</strong>
+      <span>{{ e.source }}</span>
+      <span class="badge {{ e.verification }}">{{ e.verification }}</span>
+      <span class="muted">{{ e.received_at }}</span>
+      {% if e.reason %}<span class="muted">{{ e.reason }}</span>{% endif %}
+    </summary>
+    <pre>{{ e.pretty_body }}</pre>
+    <pre>{% for k, v in e.headers.items() %}{{ k }}: {{ v }}
+{% endfor %}</pre>
+  </details>
+  {% endfor %}
+</main>
+</body>
+</html>

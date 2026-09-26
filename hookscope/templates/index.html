@@ -23,6 +23,14 @@
     .badge { font-size:12px; padding:2px 8px; border-radius:999px; border:1px solid currentColor; }
     .valid { color:var(--ok); } .invalid, .unsigned { color:var(--bad); } .no_secret { color:var(--warn); }
     pre { margin:0; padding:12px 14px; overflow-x:auto; border-top:1px solid var(--border); font-size:13px; }
+    .replay { display:flex; gap:8px; flex-wrap:wrap; padding:10px 14px; border-top:1px solid var(--border); }
+    .replay input { flex:1 1 240px; min-width:0; padding:6px 8px; font:inherit; color:var(--text);
+                    background:var(--bg); border:1px solid var(--border); border-radius:6px; }
+    .replay button { padding:6px 12px; font:inherit; cursor:pointer; color:var(--text);
+                     background:var(--card); border:1px solid var(--border); border-radius:6px; }
+    .replay button:disabled { opacity:.6; cursor:wait; }
+    .replay-result { flex-basis:100%; margin:0; font-size:13px; white-space:pre-wrap; word-break:break-word; }
+    .replay-result.ok { color:var(--ok); } .replay-result.err { color:var(--bad); }
   </style>
 </head>
 <body>
@@ -49,8 +57,57 @@
     <pre>{{ e.pretty_body }}</pre>
     <pre>{% for k, v in e.headers.items() %}{{ k }}: {{ v }}
 {% endfor %}</pre>
+    <form class="replay" data-event-id="{{ e.id }}">
+      <input type="url" name="target_url" placeholder="http://localhost:3000/webhooks" required
+             aria-label="Replay target URL for event {{ e.id }}">
+      <button type="submit">Replay</button>
+      <p class="replay-result" role="status"></p>
+    </form>
   </details>
   {% endfor %}
 </main>
+<script>
+  const TARGET_KEY = "hookscope.replayTarget";
+  const remembered = (() => { try { return localStorage.getItem(TARGET_KEY) || ""; } catch { return ""; } })();
+
+  for (const form of document.querySelectorAll("form.replay")) {
+    const input = form.elements.target_url;
+    const button = form.querySelector("button");
+    const result = form.querySelector(".replay-result");
+    input.value = remembered;
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      button.disabled = true;
+      result.className = "replay-result";
+      result.textContent = "Sending…";
+      try { localStorage.setItem(TARGET_KEY, input.value); } catch {}
+      try {
+        const resp = await fetch(`/api/events/${form.dataset.eventId}/replay`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ target_url: input.value }),
+        });
+        const data = await resp.json();
+        if (resp.status === 422 || resp.status === 404) {
+          result.className = "replay-result err";
+          result.textContent = typeof data.detail === "string" ? data.detail : "Invalid request";
+        } else if (data.status_code === null) {
+          result.className = "replay-result err";
+          result.textContent = `Could not reach target (${data.elapsed_ms} ms): ${data.error}`;
+        } else {
+          result.className = `replay-result ${data.ok ? "ok" : "err"}`;
+          result.textContent = `HTTP ${data.status_code} in ${data.elapsed_ms} ms` +
+            (data.response_body ? `\n${data.response_body}` : "");
+        }
+      } catch (err) {
+        result.className = "replay-result err";
+        result.textContent = `Replay failed: ${err}`;
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
+</script>
 </body>
 </html>

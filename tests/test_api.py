@@ -63,3 +63,12 @@ def test_dashboard_renders(client):
     resp = client.get("/")
     assert resp.status_code == 200
     assert "generic" in resp.text
+
+
+def test_dashboard_has_replay_form_per_event(client):
+    first = client.post("/hooks/generic", content=b"{}").json()["id"]
+    second = client.post("/hooks/generic", content=b"{}").json()["id"]
+    html = client.get("/").text
+    assert f'data-event-id="{first}"' in html
+    assert f'data-event-id="{second}"' in html
+    assert "/replay" in html

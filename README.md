@@ -19,7 +19,7 @@ a replayed request. HookScope makes each of those visible.
   - Stripe `Stripe-Signature` including timestamp tolerance (replay protection)
   - Generic `X-Signature`
 - Rejected deliveries return `401` **but are still stored**, so you can see why they failed
-- Web dashboard with per-source filtering and pretty-printed JSON
+- Web dashboard with per-source filtering, pretty-printed JSON and one-click replay
 - JSON API: `GET /api/events`, `GET /api/events/{id}`
 - Replay any captured event to another URL with its original headers, so signatures still verify
 - SQLite storage, Docker image, CI on every push
@@ -51,6 +51,9 @@ curl -X POST http://localhost:8000/api/events/1/replay \
   -H 'Content-Type: application/json' \
   -d '{"target_url": "http://localhost:3000/webhooks/github"}'
 ```
+
+You can also replay from the dashboard: expand an event, enter a target URL and
+click **Replay**. The last target URL is remembered in your browser.
 
 The body and original headers (including the signature) are forwarded, plus an
 `X-HookScope-Replay: <event id>` header so the target can tell replays apart. The
@@ -100,7 +103,7 @@ ruff check . && pytest -q
 ## Roadmap
 
 - [x] Replay an event to a target URL (with original headers)
-- [ ] Replay button in the dashboard
+- [x] Replay button in the dashboard
 - [ ] Forward/fan-out rules (e.g. send `invoice.paid` to Slack)
 - [ ] Payload transforms (JSONPath mapping between provider and internal schema)
 - [ ] Retry with exponential backoff + dead-letter view

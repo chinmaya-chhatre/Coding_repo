@@ -53,12 +53,15 @@ def replay_headers(event: dict) -> dict[str, str]:
     return headers
 
 
-def replay_event(event: dict, target_url: str, client: httpx.Client) -> ReplayResult:
-    """POST the stored body with its original headers to ``target_url``."""
+def replay_event(
+    event: dict, target_url: str, client: httpx.Client, headers: dict[str, str] | None = None
+) -> ReplayResult:
+    """POST the stored body with its original headers (or ``headers``) to ``target_url``."""
     validate_target(target_url)
+    headers = replay_headers(event) if headers is None else headers
     started = time.perf_counter()
     try:
-        response = client.post(target_url, content=event["body"].encode(), headers=replay_headers(event))
+        response = client.post(target_url, content=event["body"].encode(), headers=headers)
     except httpx.HTTPError as exc:
         return ReplayResult(target_url, None, _elapsed_ms(started), error=f"{type(exc).__name__}: {exc}")
     return ReplayResult(

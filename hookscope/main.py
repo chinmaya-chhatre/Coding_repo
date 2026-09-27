@@ -7,13 +7,14 @@ import os
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from . import __version__
 from .replay import InvalidTargetError, replay_event
+from .rules import ForwardRule, forward_event, load_rules, matching_rules
 from .signatures import VERIFIERS, verify
 from .store import EventStore
 
@@ -39,10 +40,22 @@ def create_app(
     store: EventStore | None = None,
     secrets: dict[str, str] | None = None,
     http_client: httpx.Client | None = None,
+    rules: list[ForwardRule] | None = None,
 ) -> FastAPI:
     store = store or EventStore(os.environ.get("HOOKSCOPE_DB", "hookscope.db"))
     secrets = load_secrets_from_env() if secrets is None else secrets
     http_client = http_client or httpx.Client(timeout=REPLAY_TIMEOUT_SECONDS)
+    rules = load_rules(os.environ.get("HOOKSCOPE_RULES")) if rules is None else rules
+
+    def run_forwards(event_id: int, rule_list: list[ForwardRule]) -> None:
+        event = store.get(event_id)
+        if event is None:
+            return
+        for rule in rule_list:
+            result = forward_event(event, rule, http_client)
+            store.add_forward(
+                event_id, rule.name, rule.target_url, result.status_code, result.elapsed_ms, result.error
+            )
 
     app = FastAPI(title="HookScope", version=__version__)
 
@@ -51,7 +64,7 @@ def create_app(
         return {"status": "ok", "version": __version__}
 
     @app.post("/hooks/{source}", status_code=202)
-    async def receive(source: str, request: Request) -> JSONResponse:
+    async def receive(source: str, request: Request, background: BackgroundTasks) -> JSONResponse:
         if source not in VERIFIERS:
             raise HTTPException(404, f"unknown source '{source}'. Supported: {sorted(VERIFIERS)}")
 
@@ -65,11 +78,21 @@ def create_app(
             verification=result.status,
             reason=result.reason,
         )
+        # Forward after responding so a slow target never delays the provider's delivery.
+        to_forward = matching_rules(store.get(event_id), rules)
+        if to_forward:
+            background.add_task(run_forwards, event_id, to_forward)
         # Rejected events are still stored so they can be debugged in the UI.
         status_code = 401 if result.rejected else 202
         return JSONResponse(
-            {"id": event_id, "verification": result.status, "reason": result.reason},
+            {
+                "id": event_id,
+                "verification": result.status,
+                "reason": result.reason,
+                "forwarded_to": [rule.name for rule in to_forward],
+            },
             status_code=status_code,
+            background=background,
         )
 
     @app.get("/api/events")
@@ -82,6 +105,16 @@ def create_app(
         if event is None:
             raise HTTPException(404, "event not found")
         return event
+
+    @app.get("/api/events/{event_id}/forwards")
+    def list_forwards(event_id: int) -> list[dict]:
+        if store.get(event_id) is None:
+            raise HTTPException(404, "event not found")
+        return store.list_forwards(event_id)
+
+    @app.get("/api/rules")
+    def list_rules() -> list[dict]:
+        return [rule.to_dict() for rule in rules]
 
     @app.post("/api/events/{event_id}/replay")
     def replay(event_id: int, payload: ReplayRequest) -> JSONResponse:

@@ -18,6 +18,18 @@ CREATE TABLE IF NOT EXISTS events (
     verification  TEXT NOT NULL,
     reason        TEXT NOT NULL DEFAULT ''
 );
+
+CREATE TABLE IF NOT EXISTS forwards (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id      INTEGER NOT NULL REFERENCES events(id),
+    rule          TEXT NOT NULL,
+    target_url    TEXT NOT NULL,
+    forwarded_at  TEXT NOT NULL,
+    status_code   INTEGER,
+    elapsed_ms    INTEGER NOT NULL,
+    error         TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS forwards_event_id ON forwards(event_id);
 """
 
 
@@ -44,7 +56,7 @@ class EventStore:
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     source,
-                    datetime.now(UTC).isoformat(timespec="seconds"),
+                    _now(),
                     json.dumps(headers),
                     body,
                     verification,
@@ -69,6 +81,35 @@ class EventStore:
         with self._connect() as conn:
             rows = conn.execute(query, params).fetchall()
         return [_to_dict(r) for r in rows]
+
+    def add_forward(
+        self,
+        event_id: int,
+        rule: str,
+        target_url: str,
+        status_code: int | None,
+        elapsed_ms: int,
+        error: str = "",
+    ) -> int:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "INSERT INTO forwards "
+                "(event_id, rule, target_url, forwarded_at, status_code, elapsed_ms, error) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (event_id, rule, target_url, _now(), status_code, elapsed_ms, error),
+            )
+            return int(cur.lastrowid)
+
+    def list_forwards(self, event_id: int) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM forwards WHERE event_id = ? ORDER BY id", (event_id,)
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def _to_dict(row: sqlite3.Row) -> dict:

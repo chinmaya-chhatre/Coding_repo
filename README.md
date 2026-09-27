@@ -22,6 +22,8 @@ a replayed request. HookScope makes each of those visible.
 - Web dashboard with per-source filtering, pretty-printed JSON and one-click replay
 - JSON API: `GET /api/events`, `GET /api/events/{id}`
 - Replay any captured event to another URL with its original headers, so signatures still verify
+- Forwarding rules: fan accepted events out to one or more URLs by source and event type,
+  with every attempt recorded (`GET /api/events/{id}/forwards`)
 - SQLite storage, Docker image, CI on every push
 
 ## Quick start
@@ -63,6 +65,35 @@ body; `502` means the target could not be reached at all.
 > HookScope sends replays to whatever URL you give it, so only expose the API on
 > networks you trust.
 
+### Forwarding rules
+
+Fan accepted deliveries out to other services automatically. Put rules in a JSON
+file and point `HOOKSCOPE_RULES` at it:
+
+```json
+{
+  "rules": [
+    {"name": "billing", "source": "stripe", "event_types": ["invoice.paid"],
+     "target_url": "https://billing.internal/webhooks/stripe"},
+    {"name": "ci", "source": "github", "event_types": ["push", "pull_request"],
+     "target_url": "http://localhost:3000/github"},
+    {"name": "audit", "target_url": "https://audit.internal/hooks"}
+  ]
+}
+```
+
+- `source` and `event_types` are optional; leaving one out matches everything.
+- The event type is GitHub's `X-GitHub-Event` header, or the JSON body's `type` field
+  for Stripe and generic sources.
+- Only accepted events (`valid` or `no_secret`) are forwarded; rejected deliveries never are.
+- Forwarding runs after HookScope has answered the provider, so a slow target never
+  delays the delivery. The receive response lists the matched rules in `forwarded_to`.
+- Each forward carries the original body and headers plus `X-HookScope-Forward: <rule name>`.
+  Results (status code, latency, error) are available from `GET /api/events/{id}/forwards`,
+  and `GET /api/rules` shows the loaded rules.
+
+An invalid rules file stops HookScope at startup with a message naming the bad rule.
+
 ### Docker
 
 ```bash
@@ -78,6 +109,7 @@ docker run -p 8000:8000 -e HOOKSCOPE_SECRET_GITHUB=dev-secret -v hookscope-data:
 | `HOOKSCOPE_SECRET_GITHUB` | GitHub webhook secret | unset |
 | `HOOKSCOPE_SECRET_STRIPE` | Stripe endpoint signing secret (`whsec_...`) | unset |
 | `HOOKSCOPE_SECRET_GENERIC` | Shared secret for `X-Signature` | unset |
+| `HOOKSCOPE_RULES` | Path to a JSON file of forwarding rules | unset (no forwarding) |
 
 A source without a secret accepts every delivery and marks it `no_secret`.
 
@@ -92,6 +124,7 @@ provider ──POST /hooks/{source}──▶ FastAPI ──▶ signatures.verify
 - `hookscope/signatures.py` — one pure function per provider, easy to unit test
 - `hookscope/store.py` — thin SQLite wrapper
 - `hookscope/replay.py` — re-sends a stored event with its original headers
+- `hookscope/rules.py` — forwarding rules: parsing, matching and sending
 - `hookscope/main.py` — app factory (`create_app`) so tests inject a temp DB and secrets
 
 ## Running tests
@@ -104,7 +137,8 @@ ruff check . && pytest -q
 
 - [x] Replay an event to a target URL (with original headers)
 - [x] Replay button in the dashboard
-- [ ] Forward/fan-out rules (e.g. send `invoice.paid` to Slack)
+- [x] Forward/fan-out rules by source and event type (JSON rules file, attempts recorded)
+- [ ] Forwarding follow-ups: Slack message formatting, forwards shown in the dashboard
 - [ ] Payload transforms (JSONPath mapping between provider and internal schema)
 - [ ] Retry with exponential backoff + dead-letter view
 - [ ] More providers: Shopify, Slack, Twilio, Svix

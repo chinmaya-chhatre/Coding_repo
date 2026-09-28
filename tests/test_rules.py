@@ -173,3 +173,53 @@ def test_load_rules_reports_bad_file(tmp_path):
         load_rules(str(path))
     with pytest.raises(InvalidRuleError, match="cannot read"):
         load_rules(str(tmp_path / "missing.json"))
+
+
+def test_dashboard_shows_forward_attempts(tmp_path):
+    recorder = Recorder(status_code=500)
+    client = _make_client(tmp_path, recorder, [ForwardRule("ci", "http://ci.test/hook")])
+
+    event_id = client.post("/hooks/generic", content=b"{}").json()["id"]
+    html = client.get("/").text
+
+    assert f'aria-label="Forwards for event {event_id}"' in html
+    assert "http://ci.test/hook" in html
+    assert "HTTP 500" in html
+    assert "forwarded 1, 1 failed" in html
+
+
+def test_dashboard_shows_unreachable_forward_error(tmp_path):
+    recorder = Recorder(error=httpx.ConnectError("connection refused"))
+    client = _make_client(tmp_path, recorder, [ForwardRule("down", "http://down.test/")])
+
+    client.post("/hooks/generic", content=b"{}")
+    html = client.get("/").text
+
+    assert "ConnectError" in html
+    assert "forwarded 1, 1 failed" in html
+
+
+def test_dashboard_omits_forwards_section_without_attempts(tmp_path):
+    client = _make_client(tmp_path, Recorder(), [])
+
+    client.post("/hooks/generic", content=b"{}")
+    html = client.get("/").text
+
+    assert "Forwards for event" not in html
+    assert "forwarded " not in html
+
+
+def test_forwards_by_event_groups_attempts(tmp_path):
+    store = EventStore(str(tmp_path / "test.db"))
+    first = store.add("generic", {}, "{}", "no_secret", "")
+    second = store.add("generic", {}, "{}", "no_secret", "")
+    store.add_forward(first, "a", "http://a.test/", 200, 5)
+    store.add_forward(second, "b", "http://b.test/", None, 7, "timeout")
+    store.add_forward(first, "c", "http://c.test/", 204, 3)
+
+    grouped = store.forwards_by_event([first, second, 999])
+
+    assert [f["rule"] for f in grouped[first]] == ["a", "c"]
+    assert [f["error"] for f in grouped[second]] == ["timeout"]
+    assert grouped[999] == []
+    assert store.forwards_by_event([]) == {}

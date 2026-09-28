@@ -31,6 +31,13 @@
     .replay button:disabled { opacity:.6; cursor:wait; }
     .replay-result { flex-basis:100%; margin:0; font-size:13px; white-space:pre-wrap; word-break:break-word; }
     .replay-result.ok { color:var(--ok); } .replay-result.err { color:var(--bad); }
+    .forwards { padding:10px 14px; border-top:1px solid var(--border); font-size:13px; overflow-x:auto; }
+    .forwards h2 { margin:0 0 6px; font-size:13px; font-weight:600; }
+    .forwards table { border-collapse:collapse; width:100%; }
+    .forwards th, .forwards td { text-align:left; padding:3px 12px 3px 0; vertical-align:top; }
+    .forwards th { color:var(--muted); font-weight:500; }
+    .forwards td.target { word-break:break-all; }
+    .fwd-ok { color:var(--ok); } .fwd-err { color:var(--bad); }
   </style>
 </head>
 <body>
@@ -53,10 +60,36 @@
       <span class="badge {{ e.verification }}">{{ e.verification }}</span>
       <span class="muted">{{ e.received_at }}</span>
       {% if e.reason %}<span class="muted">{{ e.reason }}</span>{% endif %}
+      {% if e.forwards %}
+      <span class="badge {{ 'fwd-err' if e.forwards_failed else 'fwd-ok' }}">
+        forwarded {{ e.forwards | length }}{% if e.forwards_failed %}, {{ e.forwards_failed }} failed{% endif %}
+      </span>
+      {% endif %}
     </summary>
     <pre>{{ e.pretty_body }}</pre>
     <pre>{% for k, v in e.headers.items() %}{{ k }}: {{ v }}
 {% endfor %}</pre>
+    {% if e.forwards %}
+    <section class="forwards" aria-label="Forwards for event {{ e.id }}">
+      <h2>Forwards</h2>
+      <table>
+        <tr><th>Rule</th><th>Target</th><th>Result</th><th>Time</th><th>At</th></tr>
+        {% for f in e.forwards %}
+        <tr>
+          <td>{{ f.rule }}</td>
+          <td class="target">{{ f.target_url }}</td>
+          {% if f.status_code is none %}
+          <td class="fwd-err">{{ f.error or "no response" }}</td>
+          {% else %}
+          <td class="{{ 'fwd-ok' if 200 <= f.status_code < 300 else 'fwd-err' }}">HTTP {{ f.status_code }}</td>
+          {% endif %}
+          <td>{{ f.elapsed_ms }} ms</td>
+          <td class="muted">{{ f.forwarded_at }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </section>
+    {% endif %}
     <form class="replay" data-event-id="{{ e.id }}">
       <input type="url" name="target_url" placeholder="http://localhost:3000/webhooks" required
              aria-label="Replay target URL for event {{ e.id }}">

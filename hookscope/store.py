@@ -107,6 +107,20 @@ class EventStore:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def forwards_by_event(self, event_ids: list[int]) -> dict[int, list[dict]]:
+        """Forward attempts for several events in one query, keyed by event id."""
+        grouped: dict[int, list[dict]] = {event_id: [] for event_id in event_ids}
+        if not event_ids:
+            return grouped
+        placeholders = ", ".join("?" * len(event_ids))
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM forwards WHERE event_id IN ({placeholders}) ORDER BY id", event_ids
+            ).fetchall()
+        for row in rows:
+            grouped[row["event_id"]].append(dict(row))
+        return grouped
+
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")

@@ -23,7 +23,7 @@ a replayed request. HookScope makes each of those visible.
 - JSON API: `GET /api/events`, `GET /api/events/{id}`
 - Replay any captured event to another URL with its original headers, so signatures still verify
 - Forwarding rules: fan accepted events out to one or more URLs by source and event type,
-  with every attempt recorded (`GET /api/events/{id}/forwards`)
+  with every attempt recorded (`GET /api/events/{id}/forwards`) and shown in the dashboard
 - SQLite storage, Docker image, CI on every push
 
 ## Quick start
@@ -91,6 +91,8 @@ file and point `HOOKSCOPE_RULES` at it:
 - Each forward carries the original body and headers plus `X-HookScope-Forward: <rule name>`.
   Results (status code, latency, error) are available from `GET /api/events/{id}/forwards`,
   and `GET /api/rules` shows the loaded rules.
+- The dashboard lists each event's forward attempts (rule, target, status, latency) and
+  flags events with failed forwards in the event summary.
 
 An invalid rules file stops HookScope at startup with a message naming the bad rule.
 
@@ -138,7 +140,8 @@ ruff check . && pytest -q
 - [x] Replay an event to a target URL (with original headers)
 - [x] Replay button in the dashboard
 - [x] Forward/fan-out rules by source and event type (JSON rules file, attempts recorded)
-- [ ] Forwarding follow-ups: Slack message formatting, forwards shown in the dashboard
+- [x] Forward attempts shown in the dashboard
+- [ ] Forwarding follow-up: Slack message formatting
 - [ ] Payload transforms (JSONPath mapping between provider and internal schema)
 - [ ] Retry with exponential backoff + dead-letter view
 - [ ] More providers: Shopify, Slack, Twilio, Svix

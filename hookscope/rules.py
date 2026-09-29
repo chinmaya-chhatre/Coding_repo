@@ -17,6 +17,11 @@ so they can live next to the deployment config::
 Forwarded requests carry the original body and headers (so signatures still
 verify) plus ``X-HookScope-Forward: <rule name>``. Rejected deliveries (bad or
 missing signature) are never forwarded.
+
+A rule with ``"format": "slack"`` posts a readable summary of the event to a
+Slack incoming webhook instead of the raw payload (see ``hookscope.slack``).
+The provider's headers are not sent in that case, so signatures never leak
+into Slack.
 """
 
 from __future__ import annotations
@@ -37,9 +42,11 @@ from .replay import (
     validate_target,
 )
 from .signatures import VERIFIERS
+from .slack import slack_message
 
 FORWARD_HEADER = "X-HookScope-Forward"
 FORWARDABLE_STATUSES = {"valid", "no_secret"}
+FORMATS = ("raw", "slack")
 
 
 class InvalidRuleError(ValueError):
@@ -52,6 +59,7 @@ class ForwardRule:
     target_url: str
     source: str | None = None
     event_types: tuple[str, ...] = ()
+    format: str = "raw"
 
     def matches(self, event: dict) -> bool:
         if event["verification"] not in FORWARDABLE_STATUSES:
@@ -68,6 +76,7 @@ class ForwardRule:
             "target_url": self.target_url,
             "source": self.source,
             "event_types": list(self.event_types),
+            "format": self.format,
         }
 
 
@@ -124,7 +133,11 @@ def parse_rules(data: object) -> list[ForwardRule]:
         if not isinstance(event_types, list) or not all(isinstance(t, str) for t in event_types):
             raise InvalidRuleError(f"rule '{name}': event_types must be a list of strings")
 
-        rules.append(ForwardRule(name, target_url, source, tuple(event_types)))
+        fmt = raw.get("format", "raw")
+        if fmt not in FORMATS:
+            raise InvalidRuleError(f"rule '{name}': format must be one of {list(FORMATS)}")
+
+        rules.append(ForwardRule(name, target_url, source, tuple(event_types), fmt))
     return rules
 
 
@@ -146,7 +159,12 @@ def matching_rules(event: dict, rules: Iterable[ForwardRule]) -> list[ForwardRul
 
 
 def forward_event(event: dict, rule: ForwardRule, client: httpx.Client) -> ReplayResult:
-    """POST the event to the rule's target with its original headers."""
+    """POST the event to the rule's target with its original headers (or as a Slack message)."""
+    if rule.format == "slack":
+        message = slack_message(event, rule.name, event_type(event))
+        slack_event = {**event, "body": json.dumps(message)}
+        headers = {"Content-Type": "application/json", FORWARD_HEADER: rule.name}
+        return replay_event(slack_event, rule.target_url, client, headers=headers)
     headers = replay_headers(event)
     headers.pop(REPLAY_HEADER, None)
     headers[FORWARD_HEADER] = rule.name

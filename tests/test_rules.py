@@ -113,7 +113,13 @@ def test_rules_endpoint_lists_configured_rules(tmp_path):
     rule = ForwardRule("ci", "http://ci.test/", source="github", event_types=("push",))
     client = _make_client(tmp_path, Recorder(), [rule])
     assert client.get("/api/rules").json() == [
-        {"name": "ci", "target_url": "http://ci.test/", "source": "github", "event_types": ["push"]}
+        {
+            "name": "ci",
+            "target_url": "http://ci.test/",
+            "source": "github",
+            "event_types": ["push"],
+            "format": "raw",
+        }
     ]
 
 
@@ -152,6 +158,7 @@ def test_parse_rules_accepts_object_and_defaults():
         ([{"name": "a", "target_url": "http://x/", "source": "gitlab"}], "unknown source"),
         ([{"name": "a", "target_url": "http://x/", "event_types": [1]}], "list of strings"),
         ([{"name": "a", "target_url": "http://x/"}, {"name": "a", "target_url": "http://y/"}], "duplicate"),
+        ([{"name": "a", "target_url": "http://x/", "format": "teams"}], "format must be one of"),
     ],
 )
 def test_parse_rules_rejects_bad_definitions(data, message):

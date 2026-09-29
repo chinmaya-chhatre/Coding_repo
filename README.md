@@ -24,6 +24,8 @@ a replayed request. HookScope makes each of those visible.
 - Replay any captured event to another URL with its original headers, so signatures still verify
 - Forwarding rules: fan accepted events out to one or more URLs by source and event type,
   with every attempt recorded (`GET /api/events/{id}/forwards`) and shown in the dashboard
+- Slack forwarding: post a readable event summary (repo, sender, PR, Stripe amount...) to a
+  Slack incoming webhook
 - SQLite storage, Docker image, CI on every push
 
 ## Quick start
@@ -96,6 +98,23 @@ file and point `HOOKSCOPE_RULES` at it:
 
 An invalid rules file stops HookScope at startup with a message naming the bad rule.
 
+#### Sending events to Slack
+
+Add `"format": "slack"` to a rule and use a Slack
+[incoming webhook](https://api.slack.com/messaging/webhooks) URL as the target:
+
+```json
+{"name": "gh-to-slack", "source": "github", "event_types": ["pull_request", "push"],
+ "format": "slack", "target_url": "https://hooks.slack.com/services/T000/B000/XXXX"}
+```
+
+Instead of the raw payload, HookScope posts a short message with the source, event type
+and event id, the fields you usually look for first (GitHub repository, sender, action,
+ref, PR/issue number and title, commit count; Stripe object id, amount, status and test
+mode; `id`/`type` for generic payloads), and the verification status and rule name.
+The provider's headers, including its signature, are not sent to Slack. The default
+`"format": "raw"` keeps the original forwarding behaviour.
+
 ### Docker
 
 ```bash
@@ -127,6 +146,7 @@ provider ──POST /hooks/{source}──▶ FastAPI ──▶ signatures.verify
 - `hookscope/store.py` — thin SQLite wrapper
 - `hookscope/replay.py` — re-sends a stored event with its original headers
 - `hookscope/rules.py` — forwarding rules: parsing, matching and sending
+- `hookscope/slack.py` — turns an event into a Slack message for `"format": "slack"` rules
 - `hookscope/main.py` — app factory (`create_app`) so tests inject a temp DB and secrets
 
 ## Running tests
@@ -141,7 +161,7 @@ ruff check . && pytest -q
 - [x] Replay button in the dashboard
 - [x] Forward/fan-out rules by source and event type (JSON rules file, attempts recorded)
 - [x] Forward attempts shown in the dashboard
-- [ ] Forwarding follow-up: Slack message formatting
+- [x] Forwarding follow-up: Slack message formatting
 - [ ] Payload transforms (JSONPath mapping between provider and internal schema)
 - [ ] Retry with exponential backoff + dead-letter view
 - [ ] More providers: Shopify, Slack, Twilio, Svix

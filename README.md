@@ -26,6 +26,8 @@ a replayed request. HookScope makes each of those visible.
   with every attempt recorded (`GET /api/events/{id}/forwards`) and shown in the dashboard
 - Slack forwarding: post a readable event summary (repo, sender, PR, Stripe amount...) to a
   Slack incoming webhook
+- Payload transforms: reshape a provider payload into your own schema with JSONPath mappings
+  before forwarding it
 - SQLite storage, Docker image, CI on every push
 
 ## Quick start
@@ -115,6 +117,32 @@ mode; `id`/`type` for generic payloads), and the verification status and rule na
 The provider's headers, including its signature, are not sent to Slack. The default
 `"format": "raw"` keeps the original forwarding behaviour.
 
+#### Transforming payloads
+
+Add a `transform` to a rule to forward your own JSON document instead of the provider's
+payload. Each key maps to a JSONPath expression over the event body, an `@` reference to
+event metadata, or a nested object:
+
+```json
+{"name": "orders", "source": "stripe", "event_types": ["checkout.session.completed"],
+ "target_url": "https://orders.internal/events",
+ "transform": {
+   "order_id": "$.data.object.id",
+   "amount": "$.data.object.amount_total",
+   "items": "$.data.object.line_items.data[*].price.id",
+   "meta": {"source": "@source", "type": "@event_type", "hookscope_id": "@event_id"}
+ }}
+```
+
+- Supported JSONPath: `$`, `.key`, `['key']`, `[n]` (negative counts from the end), and the
+  wildcards `[*]` / `.*`. A path with a wildcard returns a list of every match; any other
+  path returns one value, or `null` when nothing matches (or the body isn't JSON).
+- Metadata references: `@source`, `@event_type`, `@event_id`, `@received_at`, `@verification`.
+- The transformed document is sent as `application/json` with `X-HookScope-Forward`. The
+  provider's headers are dropped, since its signature would not match the new body.
+- A transform can't be combined with `"format": "slack"`. Invalid paths stop HookScope at
+  startup with a message naming the rule.
+
 ### Docker
 
 ```bash
@@ -147,6 +175,7 @@ provider ──POST /hooks/{source}──▶ FastAPI ──▶ signatures.verify
 - `hookscope/replay.py` — re-sends a stored event with its original headers
 - `hookscope/rules.py` — forwarding rules: parsing, matching and sending
 - `hookscope/slack.py` — turns an event into a Slack message for `"format": "slack"` rules
+- `hookscope/transform.py` — JSONPath subset and `transform` mappings for forwarding rules
 - `hookscope/main.py` — app factory (`create_app`) so tests inject a temp DB and secrets
 
 ## Running tests
@@ -162,7 +191,9 @@ ruff check . && pytest -q
 - [x] Forward/fan-out rules by source and event type (JSON rules file, attempts recorded)
 - [x] Forward attempts shown in the dashboard
 - [x] Forwarding follow-up: Slack message formatting
-- [ ] Payload transforms (JSONPath mapping between provider and internal schema)
+- [x] Payload transforms (JSONPath mapping between provider and internal schema)
+- [ ] Transforms follow-up: preview a transform against a stored event (API + dashboard),
+  JSONPath filter expressions (`[?(...)]`) and recursive descent (`..`)
 - [ ] Retry with exponential backoff + dead-letter view
 - [ ] More providers: Shopify, Slack, Twilio, Svix
 - [ ] Search and date-range filters in the dashboard

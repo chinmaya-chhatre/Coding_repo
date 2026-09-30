@@ -22,6 +22,10 @@ A rule with ``"format": "slack"`` posts a readable summary of the event to a
 Slack incoming webhook instead of the raw payload (see ``hookscope.slack``).
 The provider's headers are not sent in that case, so signatures never leak
 into Slack.
+
+A rule with a ``transform`` mapping sends a new JSON document built from the
+payload with JSONPath expressions (see ``hookscope.transform``). The original
+signature would not match the new body, so provider headers are not sent either.
 """
 
 from __future__ import annotations
@@ -43,6 +47,7 @@ from .replay import (
 )
 from .signatures import VERIFIERS
 from .slack import slack_message
+from .transform import InvalidTransformError, apply_transform, validate_mapping
 
 FORWARD_HEADER = "X-HookScope-Forward"
 FORWARDABLE_STATUSES = {"valid", "no_secret"}
@@ -60,6 +65,7 @@ class ForwardRule:
     source: str | None = None
     event_types: tuple[str, ...] = ()
     format: str = "raw"
+    transform: dict | None = None
 
     def matches(self, event: dict) -> bool:
         if event["verification"] not in FORWARDABLE_STATUSES:
@@ -77,6 +83,7 @@ class ForwardRule:
             "source": self.source,
             "event_types": list(self.event_types),
             "format": self.format,
+            "transform": self.transform,
         }
 
 
@@ -137,7 +144,16 @@ def parse_rules(data: object) -> list[ForwardRule]:
         if fmt not in FORMATS:
             raise InvalidRuleError(f"rule '{name}': format must be one of {list(FORMATS)}")
 
-        rules.append(ForwardRule(name, target_url, source, tuple(event_types), fmt))
+        transform = raw.get("transform")
+        if transform is not None:
+            if fmt != "raw":
+                raise InvalidRuleError(f"rule '{name}': transform cannot be combined with format '{fmt}'")
+            try:
+                validate_mapping(transform)
+            except InvalidTransformError as exc:
+                raise InvalidRuleError(f"rule '{name}': {exc}") from exc
+
+        rules.append(ForwardRule(name, target_url, source, tuple(event_types), fmt, transform))
     return rules
 
 
@@ -159,12 +175,17 @@ def matching_rules(event: dict, rules: Iterable[ForwardRule]) -> list[ForwardRul
 
 
 def forward_event(event: dict, rule: ForwardRule, client: httpx.Client) -> ReplayResult:
-    """POST the event to the rule's target with its original headers (or as a Slack message)."""
+    """POST the event to the rule's target with its original headers (or a Slack/transformed body)."""
     if rule.format == "slack":
-        message = slack_message(event, rule.name, event_type(event))
-        slack_event = {**event, "body": json.dumps(message)}
+        document = slack_message(event, rule.name, event_type(event))
+    elif rule.transform is not None:
+        document = apply_transform(rule.transform, event, event_type(event))
+    else:
+        document = None
+    if document is not None:
+        new_event = {**event, "body": json.dumps(document)}
         headers = {"Content-Type": "application/json", FORWARD_HEADER: rule.name}
-        return replay_event(slack_event, rule.target_url, client, headers=headers)
+        return replay_event(new_event, rule.target_url, client, headers=headers)
     headers = replay_headers(event)
     headers.pop(REPLAY_HEADER, None)
     headers[FORWARD_HEADER] = rule.name

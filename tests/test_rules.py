@@ -119,6 +119,7 @@ def test_rules_endpoint_lists_configured_rules(tmp_path):
             "source": "github",
             "event_types": ["push"],
             "format": "raw",
+            "transform": None,
         }
     ]
 
@@ -159,6 +160,13 @@ def test_parse_rules_accepts_object_and_defaults():
         ([{"name": "a", "target_url": "http://x/", "event_types": [1]}], "list of strings"),
         ([{"name": "a", "target_url": "http://x/"}, {"name": "a", "target_url": "http://y/"}], "duplicate"),
         ([{"name": "a", "target_url": "http://x/", "format": "teams"}], "format must be one of"),
+        ([{"name": "a", "target_url": "http://x/", "transform": {}}], "non-empty object"),
+        ([{"name": "a", "target_url": "http://x/", "transform": {"k": "repo"}}], "must start with"),
+        ([{"name": "a", "target_url": "http://x/", "transform": {"k": "@nope"}}], "unknown reference"),
+        (
+            [{"name": "a", "target_url": "http://x/", "format": "slack", "transform": {"k": "$"}}],
+            "cannot be combined",
+        ),
     ],
 )
 def test_parse_rules_rejects_bad_definitions(data, message):

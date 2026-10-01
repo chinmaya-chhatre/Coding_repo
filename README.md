@@ -28,6 +28,8 @@ a replayed request. HookScope makes each of those visible.
   Slack incoming webhook
 - Payload transforms: reshape a provider payload into your own schema with JSONPath mappings
   before forwarding it
+- Transform preview: try a rule's transform (or an ad-hoc one) against any stored event
+  with `POST /api/events/{id}/transform-preview`
 - SQLite storage, Docker image, CI on every push
 
 ## Quick start
@@ -143,6 +145,23 @@ event metadata, or a nested object:
 - A transform can't be combined with `"format": "slack"`. Invalid paths stop HookScope at
   startup with a message naming the rule.
 
+To check a mapping before relying on it, preview it against an event HookScope has
+already captured. Send either the name of a loaded rule or an ad-hoc `transform`:
+
+```bash
+curl -X POST http://localhost:8000/api/events/1/transform-preview \
+  -H 'Content-Type: application/json' -d '{"rule": "orders"}'
+
+curl -X POST http://localhost:8000/api/events/1/transform-preview \
+  -H 'Content-Type: application/json' \
+  -d '{"transform": {"order_id": "$.data.object.id", "type": "@event_type"}}'
+```
+
+The response holds the `output` document that would be forwarded, the event's
+`event_type`, and for a rule, `matches`: whether that rule would actually forward this
+event (source, event type and verification status). Nothing is sent anywhere. An invalid
+mapping or a rule without a transform returns `422`; an unknown event or rule, `404`.
+
 ### Docker
 
 ```bash
@@ -192,7 +211,8 @@ ruff check . && pytest -q
 - [x] Forward attempts shown in the dashboard
 - [x] Forwarding follow-up: Slack message formatting
 - [x] Payload transforms (JSONPath mapping between provider and internal schema)
-- [ ] Transforms follow-up: preview a transform against a stored event (API + dashboard),
+- [x] Transform preview API (`POST /api/events/{id}/transform-preview`)
+- [ ] Transforms follow-up: preview a transform from the dashboard,
   JSONPath filter expressions (`[?(...)]`) and recursive descent (`..`)
 - [ ] Retry with exponential backoff + dead-letter view
 - [ ] More providers: Shopify, Slack, Twilio, Svix

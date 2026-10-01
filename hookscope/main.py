@@ -14,9 +14,10 @@ from pydantic import BaseModel
 
 from . import __version__
 from .replay import InvalidTargetError, replay_event
-from .rules import ForwardRule, forward_event, load_rules, matching_rules
+from .rules import ForwardRule, event_type, forward_event, load_rules, matching_rules
 from .signatures import VERIFIERS, verify
 from .store import EventStore
+from .transform import InvalidTransformError, apply_transform, validate_mapping
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 REPLAY_TIMEOUT_SECONDS = 10.0
@@ -24,6 +25,11 @@ REPLAY_TIMEOUT_SECONDS = 10.0
 
 class ReplayRequest(BaseModel):
     target_url: str
+
+
+class TransformPreviewRequest(BaseModel):
+    rule: str | None = None
+    transform: dict | None = None
 
 
 def load_secrets_from_env() -> dict[str, str]:
@@ -127,6 +133,36 @@ def create_app(
             raise HTTPException(422, str(exc)) from exc
         # 502 when the target could not be reached at all; otherwise pass the outcome through.
         return JSONResponse(result.to_dict(), status_code=502 if result.status_code is None else 200)
+
+    @app.post("/api/events/{event_id}/transform-preview")
+    def preview_transform(event_id: int, payload: TransformPreviewRequest) -> dict:
+        event = store.get(event_id)
+        if event is None:
+            raise HTTPException(404, "event not found")
+        if (payload.rule is None) == (payload.transform is None):
+            raise HTTPException(422, "send exactly one of 'rule' (a rule name) or 'transform' (a mapping)")
+        rule = None
+        mapping = payload.transform
+        if payload.rule is not None:
+            rule = next((r for r in rules if r.name == payload.rule), None)
+            if rule is None:
+                raise HTTPException(404, f"unknown rule '{payload.rule}'")
+            if rule.transform is None:
+                raise HTTPException(422, f"rule '{rule.name}' has no transform")
+            mapping = rule.transform
+        try:
+            validate_mapping(mapping)
+        except InvalidTransformError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        kind = event_type(event)
+        return {
+            "event_id": event_id,
+            "event_type": kind,
+            "rule": rule.name if rule else None,
+            # Whether the rule would actually forward this event; null for an ad-hoc transform.
+            "matches": rule.matches(event) if rule else None,
+            "output": apply_transform(mapping, event, kind),
+        }
 
     @app.get("/", response_class=HTMLResponse)
     def dashboard(request: Request, source: str | None = None) -> HTMLResponse:

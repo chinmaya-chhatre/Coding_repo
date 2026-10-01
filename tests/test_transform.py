@@ -160,3 +160,74 @@ def test_transformed_event_is_forwarded_without_provider_headers(tmp_path):
     assert sent.headers[FORWARD_HEADER] == "internal"
     assert "x-signature" not in sent.headers
     assert "x-custom" not in sent.headers
+
+
+@pytest.fixture
+def preview_client(tmp_path):
+    rules = [
+        ForwardRule("orders", "http://orders.test/", source="generic", event_types=("order.created",),
+                    transform={"order": "$.data.id", "kind": "@event_type", "id": "@event_id"}),
+        ForwardRule("plain", "http://plain.test/"),
+    ]  # fmt: skip
+    store = EventStore(str(tmp_path / "test.db"))
+    return TestClient(create_app(store=store, secrets={}, rules=rules))
+
+
+def _stored(client, body: dict) -> int:
+    return client.post("/hooks/generic", content=json.dumps(body)).json()["id"]
+
+
+def test_preview_rule_transform_against_stored_event(preview_client):
+    event_id = _stored(preview_client, {"type": "order.created", "data": {"id": "o_1"}})
+    resp = preview_client.post(f"/api/events/{event_id}/transform-preview", json={"rule": "orders"})
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "event_id": event_id,
+        "event_type": "order.created",
+        "rule": "orders",
+        "matches": True,
+        "output": {"order": "o_1", "kind": "order.created", "id": event_id},
+    }
+
+
+def test_preview_reports_when_rule_would_not_forward_event(preview_client):
+    event_id = _stored(preview_client, {"type": "order.cancelled", "data": {"id": "o_2"}})
+    body = preview_client.post(f"/api/events/{event_id}/transform-preview", json={"rule": "orders"}).json()
+    assert body["matches"] is False
+    assert body["output"]["order"] == "o_2"
+
+
+def test_preview_ad_hoc_transform(preview_client):
+    event_id = _stored(preview_client, {"type": "x", "items": [{"sku": "a"}, {"sku": "b"}]})
+    resp = preview_client.post(
+        f"/api/events/{event_id}/transform-preview",
+        json={"transform": {"skus": "$.items[*].sku", "meta": {"src": "@source"}}},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["rule"] is None and body["matches"] is None
+    assert body["output"] == {"skus": ["a", "b"], "meta": {"src": "generic"}}
+
+
+@pytest.mark.parametrize(
+    "payload, status, message",
+    [
+        ({}, 422, "exactly one"),
+        ({"rule": "orders", "transform": {"a": "$.a"}}, 422, "exactly one"),
+        ({"rule": "missing"}, 404, "unknown rule 'missing'"),
+        ({"rule": "plain"}, 422, "has no transform"),
+        ({"transform": {"a": "a.b"}}, 422, "must start with '$'"),
+        ({"transform": {"a": "@nope"}}, 422, "unknown reference"),
+        ({"transform": {}}, 422, "non-empty"),
+    ],
+)
+def test_preview_rejects_bad_requests(preview_client, payload, status, message):
+    event_id = _stored(preview_client, {"type": "x"})
+    resp = preview_client.post(f"/api/events/{event_id}/transform-preview", json=payload)
+    assert resp.status_code == status
+    assert message in resp.json()["detail"]
+
+
+def test_preview_unknown_event(preview_client):
+    resp = preview_client.post("/api/events/999/transform-preview", json={"rule": "orders"})
+    assert resp.status_code == 404

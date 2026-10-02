@@ -14,8 +14,11 @@ event metadata, or a nested mapping (for nested output objects)::
 
 Supported JSONPath subset: ``$`` (the whole body), ``.key``, ``['key']`` /
 ``["key"]``, ``[n]`` (negative indexes count from the end), ``[*]`` and ``.*``
-(every element or value). A path with a wildcard yields a list of all matches;
-any other path yields a single value, or ``null`` when nothing matches.
+(every element or value), and recursive descent ``..`` (``$..id``, ``$..[0]``,
+``$..*``), which applies the next selector to a node and all of its descendants.
+A path with a wildcard or recursive descent yields a list of all matches (outer
+nodes before the ones nested inside them); any other path yields a single value, or ``null`` when nothing
+matches.
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ import json
 import re
 
 WILDCARD = object()
+DESCENT = object()
 META_FIELDS = ("source", "event_type", "event_id", "received_at", "verification")
 MAX_DEPTH = 5
 
@@ -36,7 +40,11 @@ class InvalidTransformError(ValueError):
 
 
 def compile_path(expr: str) -> tuple:
-    """Parse a JSONPath expression into segments (``str`` keys, ``int`` indexes, ``WILDCARD``)."""
+    """Parse a JSONPath expression into segments.
+
+    Segments are ``str`` keys, ``int`` indexes, ``WILDCARD``, and ``DESCENT`` (always
+    followed by the selector it applies to).
+    """
     if not expr.startswith("$"):
         raise InvalidTransformError(f"path '{expr}' must start with '$'")
     segments: list = []
@@ -44,13 +52,20 @@ def compile_path(expr: str) -> tuple:
     while pos < len(expr):
         char = expr[pos]
         if char == ".":
-            if expr.startswith("*", pos + 1):
+            start = pos + 1
+            if expr.startswith(".", start):
+                segments.append(DESCENT)
+                start += 1
+                if expr.startswith("[", start):
+                    pos = start
+                    continue
+            if expr.startswith("*", start):
                 segments.append(WILDCARD)
-                pos += 2
+                pos = start + 1
                 continue
-            match = _NAME.match(expr, pos + 1)
+            match = _NAME.match(expr, start)
             if not match:
-                raise InvalidTransformError(f"path '{expr}': expected a key name at position {pos + 1}")
+                raise InvalidTransformError(f"path '{expr}': expected a key name at position {start}")
             segments.append(match.group())
             pos = match.end()
         elif char == "[":
@@ -73,9 +88,12 @@ def compile_path(expr: str) -> tuple:
 
 
 def resolve(payload: object, segments: tuple) -> object:
-    """Evaluate compiled segments; wildcard paths return a list of every match."""
+    """Evaluate compiled segments; wildcard and descent paths return a list of every match."""
     nodes = [payload]
     for segment in segments:
+        if segment is DESCENT:
+            nodes = [descendant for node in nodes for descendant in _self_and_descendants(node)]
+            continue
         found = []
         for node in nodes:
             if segment is WILDCARD:
@@ -89,9 +107,23 @@ def resolve(payload: object, segments: tuple) -> object:
             elif isinstance(node, dict) and segment in node:
                 found.append(node[segment])
         nodes = found
-    if WILDCARD in segments:
+    if WILDCARD in segments or DESCENT in segments:
         return nodes
     return nodes[0] if nodes else None
+
+
+def _self_and_descendants(node: object) -> list:
+    """``node`` followed by every value nested inside it, in document (pre-)order."""
+    ordered = []
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        ordered.append(current)
+        if isinstance(current, dict):
+            stack.extend(reversed(list(current.values())))
+        elif isinstance(current, list):
+            stack.extend(reversed(current))
+    return ordered
 
 
 def validate_mapping(mapping: object, depth: int = 0) -> None:

@@ -8,6 +8,7 @@ from hookscope.main import create_app
 from hookscope.rules import FORWARD_HEADER, ForwardRule, parse_rules
 from hookscope.store import EventStore
 from hookscope.transform import (
+    DESCENT,
     WILDCARD,
     InvalidTransformError,
     apply_transform,
@@ -47,6 +48,12 @@ def _event(body: str, source: str = "github") -> dict:
         ('$["a.b"]', ("a.b",)),
         ("$.commits[*].id", ("commits", WILDCARD, "id")),
         ("$.repository.*", ("repository", WILDCARD)),
+        ("$..id", (DESCENT, "id")),
+        ("$.commits..message", ("commits", DESCENT, "message")),
+        ("$..*", (DESCENT, WILDCARD)),
+        ("$..[0]", (DESCENT, 0)),
+        ("$..['weird key']", (DESCENT, "weird key")),
+        ("$..[*]", (DESCENT, WILDCARD)),
     ],
 )
 def test_compile_path(expr, segments):
@@ -60,7 +67,9 @@ def test_compile_path(expr, segments):
         ("$.", "expected a key name"),
         ("$.commits[0", "unclosed"),
         ("$.commits[?(@.id)]", "unsupported selector"),
-        ("$..id", "expected a key name"),
+        ("$..", "expected a key name at position 3"),
+        ("$...id", "expected a key name"),
+        ("$..[?(@.id)]", "unsupported selector"),
         ("$repo", "unexpected 'r'"),
     ],
 )
@@ -83,10 +92,40 @@ def test_compile_path_rejects_bad_expressions(expr, message):
         ("$.commits[5]", None),
         ("$.sender.login[0]", None),
         ("$.missing[*]", []),
+        ("$..id", ["c1", "c2"]),
+        ("$..message", ["first", "second"]),
+        ("$.commits..id", ["c1", "c2"]),
+        ("$..x", [1]),
+        ("$..[0]", ["a", {"id": "c1", "message": "first"}]),
+        ("$..nope", []),
+        ("$.sender..login", ["octocat"]),
     ],
 )
 def test_resolve(expr, expected):
     assert resolve(PAYLOAD, compile_path(expr)) == expected
+
+
+def test_recursive_descent_matches_at_every_depth_in_document_order():
+    payload = {"id": 1, "child": {"id": 2, "items": [{"id": 3}, {"other": {"id": 4}}]}, "id2": {"id": 5}}
+    assert resolve(payload, compile_path("$..id")) == [1, 2, 3, 4, 5]
+
+
+def test_recursive_descent_wildcard_returns_every_nested_value_once():
+    payload = {"a": {"b": [1, 2]}, "c": 3}
+    # Children of each node, visiting outer nodes before inner ones (the root itself is excluded).
+    assert resolve(payload, compile_path("$..*")) == [{"b": [1, 2]}, 3, [1, 2], 1, 2]
+
+
+def test_recursive_descent_on_scalar_or_non_json_body():
+    assert resolve("text", compile_path("$..id")) == []
+    assert resolve(None, compile_path("$..*")) == []
+
+
+def test_recursive_descent_handles_deeply_nested_payloads():
+    payload: dict = {"id": "leaf"}
+    for _ in range(3000):
+        payload = {"wrap": payload}
+    assert resolve(payload, compile_path("$..id")) == ["leaf"]
 
 
 def test_resolve_root_returns_whole_payload():
@@ -98,6 +137,7 @@ def test_apply_transform_builds_nested_document_with_metadata():
         "repo": "$.repository.full_name",
         "author": "$.sender.login",
         "commit_ids": "$.commits[*].id",
+        "all_ids": "$..id",
         "missing": "$.nope",
         "meta": {"source": "@source", "type": "@event_type", "id": "@event_id", "status": "@verification"},
     }
@@ -108,6 +148,7 @@ def test_apply_transform_builds_nested_document_with_metadata():
         "repo": "octo/hello",
         "author": "octocat",
         "commit_ids": ["c1", "c2"],
+        "all_ids": ["c1", "c2"],
         "missing": None,
         "meta": {"source": "github", "type": "push", "id": 7, "status": "valid"},
     }
@@ -125,6 +166,7 @@ def test_apply_transform_on_non_json_body_yields_nulls_but_keeps_metadata():
         ({}, "non-empty object"),
         ({"k": 5}, "path string or an object"),
         ({"k": "$.a[x]"}, "unsupported selector"),
+        ({"k": "$.a.."}, "expected a key name"),
         ({"k": {"inner": {}}}, "non-empty object"),
         ({"a": {"b": {"c": {"d": {"e": {"f": "$"}}}}}}, "nested more than"),
     ],

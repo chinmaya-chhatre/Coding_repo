@@ -27,7 +27,7 @@ a replayed request. HookScope makes each of those visible.
 - Slack forwarding: post a readable event summary (repo, sender, PR, Stripe amount...) to a
   Slack incoming webhook
 - Payload transforms: reshape a provider payload into your own schema with JSONPath mappings
-  before forwarding it
+  (including wildcards and `..` recursive descent) before forwarding it
 - Transform preview: try a rule's transform (or an ad-hoc one) against any stored event
   with `POST /api/events/{id}/transform-preview`
 - SQLite storage, Docker image, CI on every push
@@ -136,9 +136,11 @@ event metadata, or a nested object:
  }}
 ```
 
-- Supported JSONPath: `$`, `.key`, `['key']`, `[n]` (negative counts from the end), and the
-  wildcards `[*]` / `.*`. A path with a wildcard returns a list of every match; any other
-  path returns one value, or `null` when nothing matches (or the body isn't JSON).
+- Supported JSONPath: `$`, `.key`, `['key']`, `[n]` (negative counts from the end), the
+  wildcards `[*]` / `.*`, and recursive descent `..` (`$..id` finds every `id` at any depth;
+  `$..[0]` and `$..*` work too). A path with a wildcard or `..` returns a list of every
+  match; any other path returns one value, or `null` when nothing matches (or the body
+  isn't JSON).
 - Metadata references: `@source`, `@event_type`, `@event_id`, `@received_at`, `@verification`.
 - The transformed document is sent as `application/json` with `X-HookScope-Forward`. The
   provider's headers are dropped, since its signature would not match the new body.
@@ -212,8 +214,9 @@ ruff check . && pytest -q
 - [x] Forwarding follow-up: Slack message formatting
 - [x] Payload transforms (JSONPath mapping between provider and internal schema)
 - [x] Transform preview API (`POST /api/events/{id}/transform-preview`)
+- [x] JSONPath recursive descent (`..`) in transforms
 - [ ] Transforms follow-up: preview a transform from the dashboard,
-  JSONPath filter expressions (`[?(...)]`) and recursive descent (`..`)
+  JSONPath filter expressions (`[?(...)]`)
 - [ ] Retry with exponential backoff + dead-letter view
 - [ ] More providers: Shopify, Slack, Twilio, Svix
 - [ ] Search and date-range filters in the dashboard

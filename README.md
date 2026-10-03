@@ -28,8 +28,8 @@ a replayed request. HookScope makes each of those visible.
   Slack incoming webhook
 - Payload transforms: reshape a provider payload into your own schema with JSONPath mappings
   (including wildcards and `..` recursive descent) before forwarding it
-- Transform preview: try a rule's transform (or an ad-hoc one) against any stored event
-  with `POST /api/events/{id}/transform-preview`
+- Transform preview: try a rule's transform (or an ad-hoc one) against any stored event,
+  from the dashboard or with `POST /api/events/{id}/transform-preview`
 - SQLite storage, Docker image, CI on every push
 
 ## Quick start
@@ -164,6 +164,11 @@ The response holds the `output` document that would be forwarded, the event's
 event (source, event type and verification status). Nothing is sent anywhere. An invalid
 mapping or a rule without a transform returns `422`; an unknown event or rule, `404`.
 
+The dashboard has the same preview under each event: pick a rule to preview its transform
+(its mapping is shown so you can see what it does), or write a mapping as JSON. Editing a
+rule's mapping switches to an ad-hoc preview, so you can start from a rule and try changes
+before putting them in the rules file.
+
 ### Docker
 
 ```bash
@@ -215,8 +220,8 @@ ruff check . && pytest -q
 - [x] Payload transforms (JSONPath mapping between provider and internal schema)
 - [x] Transform preview API (`POST /api/events/{id}/transform-preview`)
 - [x] JSONPath recursive descent (`..`) in transforms
-- [ ] Transforms follow-up: preview a transform from the dashboard,
-  JSONPath filter expressions (`[?(...)]`)
+- [x] Transform preview in the dashboard
+- [ ] Transforms follow-up: JSONPath filter expressions (`[?(...)]`)
 - [ ] Retry with exponential backoff + dead-letter view
 - [ ] More providers: Shopify, Slack, Twilio, Svix
 - [ ] Search and date-range filters in the dashboard

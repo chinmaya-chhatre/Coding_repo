@@ -20,6 +20,8 @@ from .store import EventStore
 from .transform import InvalidTransformError, apply_transform, validate_mapping
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+# Keep mapping keys in rule order: the output document follows the order of its transform.
+TEMPLATES.env.policies["json.dumps_kwargs"] = {"sort_keys": False}
 REPLAY_TIMEOUT_SECONDS = 10.0
 
 
@@ -175,7 +177,14 @@ def create_app(
         return TEMPLATES.TemplateResponse(
             request,
             "index.html",
-            {"events": events, "sources": sorted(VERIFIERS), "active": source, "configured": sorted(secrets)},
+            {
+                "events": events,
+                "sources": sorted(VERIFIERS),
+                "active": source,
+                "configured": sorted(secrets),
+                # Rule mappings let the preview form start from a rule's transform and tweak it.
+                "transform_rules": {rule.name: rule.transform for rule in rules if rule.transform},
+            },
         )
 
     return app

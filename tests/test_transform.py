@@ -273,3 +273,49 @@ def test_preview_rejects_bad_requests(preview_client, payload, status, message):
 def test_preview_unknown_event(preview_client):
     resp = preview_client.post("/api/events/999/transform-preview", json={"rule": "orders"})
     assert resp.status_code == 404
+
+
+def _rule_transforms(html: str) -> dict:
+    start = html.index('<script type="application/json" id="transform-rules">')
+    start = html.index(">", start) + 1
+    return json.loads(html[start : html.index("</script>", start)])
+
+
+def test_dashboard_has_transform_preview_form_per_event(preview_client):
+    first = _stored(preview_client, {"type": "x"})
+    second = _stored(preview_client, {"type": "y"})
+    html = preview_client.get("/").text
+    assert html.count('<form class="preview"') == 2
+    assert f'<form class="preview" data-event-id="{first}"' in html
+    assert f'<form class="preview" data-event-id="{second}"' in html
+    assert "/transform-preview" in html
+
+
+def test_dashboard_offers_only_rules_with_a_transform(preview_client):
+    _stored(preview_client, {"type": "x"})
+    html = preview_client.get("/").text
+    assert '<option value="orders">Rule: orders</option>' in html
+    assert 'value="plain"' not in html
+    orders = {"order": "$.data.id", "kind": "@event_type", "id": "@event_id"}
+    assert _rule_transforms(html) == {"orders": orders}
+    # Rule order is kept so an edited copy of the mapping builds the same document.
+    assert list(_rule_transforms(html)["orders"]) == ["order", "kind", "id"]
+
+
+def test_dashboard_preview_without_transform_rules_offers_custom_mapping_only(tmp_path):
+    client = TestClient(create_app(store=EventStore(str(tmp_path / "t.db")), secrets={}, rules=[]))
+    _stored(client, {"type": "x"})
+    html = client.get("/").text
+    assert '<option value="">Custom mapping</option>' in html
+    assert "Rule: " not in html
+    assert _rule_transforms(html) == {}
+
+
+def test_dashboard_escapes_rule_transforms_embedded_in_script(tmp_path):
+    rules = [ForwardRule("evil</script>", "http://x.test/", transform={"</script><b>": "$.a"})]
+    client = TestClient(create_app(store=EventStore(str(tmp_path / "t.db")), secrets={}, rules=rules))
+    _stored(client, {"a": 1})
+    html = client.get("/").text
+    assert "</script><b>" not in html
+    assert _rule_transforms(html) == {"evil</script>": {"</script><b>": "$.a"}}
+    assert '<option value="evil&lt;/script&gt;">' in html

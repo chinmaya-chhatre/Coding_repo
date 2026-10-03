@@ -38,6 +38,16 @@
     .forwards th { color:var(--muted); font-weight:500; }
     .forwards td.target { word-break:break-all; }
     .fwd-ok { color:var(--ok); } .fwd-err { color:var(--bad); }
+    .preview { display:flex; gap:8px; flex-wrap:wrap; padding:10px 14px; border-top:1px solid var(--border); }
+    .preview select, .preview textarea { font:inherit; color:var(--text); background:var(--bg);
+                                         border:1px solid var(--border); border-radius:6px; padding:6px 8px; }
+    .preview textarea { flex-basis:100%; min-height:5.5em; font:13px/1.4 ui-monospace, monospace; resize:vertical; }
+    .preview button { padding:6px 12px; font:inherit; cursor:pointer; color:var(--text);
+                      background:var(--card); border:1px solid var(--border); border-radius:6px; }
+    .preview button:disabled { opacity:.6; cursor:wait; }
+    .preview-note { flex-basis:100%; margin:0; font-size:13px; }
+    .preview-note.ok { color:var(--ok); } .preview-note.err { color:var(--bad); } .preview-note.warn { color:var(--warn); }
+    .preview-output { flex-basis:100%; border:1px solid var(--border); border-radius:6px; }
   </style>
 </head>
 <body>
@@ -96,9 +106,21 @@
       <button type="submit">Replay</button>
       <p class="replay-result" role="status"></p>
     </form>
+    <form class="preview" data-event-id="{{ e.id }}" aria-label="Transform preview for event {{ e.id }}">
+      <select name="rule" aria-label="Transform to preview for event {{ e.id }}">
+        <option value="">Custom mapping</option>
+        {% for name in transform_rules %}<option value="{{ name }}">Rule: {{ name }}</option>{% endfor %}
+      </select>
+      <button type="submit">Preview transform</button>
+      <textarea name="transform" spellcheck="false" aria-label="Transform mapping (JSON) for event {{ e.id }}"
+                placeholder='{"id": "@event_id", "type": "@event_type", "repo": "$.repository.full_name"}'></textarea>
+      <p class="preview-note" role="status"></p>
+      <pre class="preview-output" hidden></pre>
+    </form>
   </details>
   {% endfor %}
 </main>
+<script type="application/json" id="transform-rules">{{ transform_rules | tojson }}</script>
 <script>
   const TARGET_KEY = "hookscope.replayTarget";
   const remembered = (() => { try { return localStorage.getItem(TARGET_KEY) || ""; } catch { return ""; } })();
@@ -136,6 +158,69 @@
       } catch (err) {
         result.className = "replay-result err";
         result.textContent = `Replay failed: ${err}`;
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
+
+  const RULE_TRANSFORMS = JSON.parse(document.getElementById("transform-rules").textContent);
+  const asJson = (value) => JSON.stringify(value, null, 2);
+
+  for (const form of document.querySelectorAll("form.preview")) {
+    const select = form.elements.rule;
+    const mapping = form.elements.transform;
+    const button = form.querySelector("button");
+    const note = form.querySelector(".preview-note");
+    const output = form.querySelector(".preview-output");
+    const show = (kind, text, doc) => {
+      note.className = `preview-note ${kind}`;
+      note.textContent = text;
+      output.hidden = doc === undefined;
+      output.textContent = doc === undefined ? "" : asJson(doc);
+    };
+
+    // Picking a rule shows its mapping; editing it turns the preview into an ad-hoc one.
+    select.addEventListener("change", () => {
+      if (select.value) mapping.value = asJson(RULE_TRANSFORMS[select.value]);
+    });
+    mapping.addEventListener("input", () => {
+      if (select.value && mapping.value !== asJson(RULE_TRANSFORMS[select.value])) select.value = "";
+    });
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      let request;
+      if (select.value) {
+        request = { rule: select.value };
+      } else {
+        try {
+          request = { transform: JSON.parse(mapping.value) };
+        } catch (err) {
+          show("err", `Mapping is not valid JSON: ${err.message}`);
+          return;
+        }
+      }
+      button.disabled = true;
+      show("", "Previewing…");
+      try {
+        const resp = await fetch(`/api/events/${form.dataset.eventId}/transform-preview`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(request),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          show("err", typeof data.detail === "string" ? data.detail : "Invalid mapping");
+        } else if (data.matches === false) {
+          show("warn", `Rule '${data.rule}' would not forward this event (its filters don't match); output if it did:`, data.output);
+        } else if (data.matches) {
+          show("ok", `Rule '${data.rule}' would forward this document:`, data.output);
+        } else {
+          show("ok", "Output (nothing is sent):", data.output);
+        }
+      } catch (err) {
+        show("err", `Preview failed: ${err}`);
       } finally {
         button.disabled = false;
       }

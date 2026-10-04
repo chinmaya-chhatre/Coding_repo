@@ -10,6 +10,7 @@ from hookscope.store import EventStore
 from hookscope.transform import (
     DESCENT,
     WILDCARD,
+    Filter,
     InvalidTransformError,
     apply_transform,
     compile_path,
@@ -66,10 +67,17 @@ def test_compile_path(expr, segments):
         ("repository", "must start with"),
         ("$.", "expected a key name"),
         ("$.commits[0", "unclosed"),
-        ("$.commits[?(@.id)]", "unsupported selector"),
         ("$..", "expected a key name at position 3"),
         ("$...id", "expected a key name"),
-        ("$..[?(@.id)]", "unsupported selector"),
+        ("$.commits[?(@.id == 'c1')", "unclosed"),
+        ("$.commits[?()]", "invalid filter '\\[\\?\\(\\)\\]': expected a path or a value, got '\\)'"),
+        ("$.commits[?(@.id ==)]", "expected a path or a value"),
+        ("$.commits[?('c1')]", "a literal on its own is not a condition"),
+        ("$.commits[?(@.id == 'c1']", "missing '\\)'"),
+        ("$.commits[?(@.id = 'c1')]", "unexpected '='"),
+        ("$.commits[?(@.id == 'c1') 2]", "unexpected '2'"),
+        ("$.commits[?(@.id == $.x)]", "unexpected '\\$'"),
+        ("$.commits[?(@.id[*])]", "unexpected '\\['"),
         ("$repo", "unexpected 'r'"),
     ],
 )
@@ -126,6 +134,86 @@ def test_recursive_descent_handles_deeply_nested_payloads():
     for _ in range(3000):
         payload = {"wrap": payload}
     assert resolve(payload, compile_path("$..id")) == ["leaf"]
+
+
+def test_compile_path_with_filter():
+    segments = compile_path("$.commits[?(@.id == 'c1')].message")
+    assert segments == ("commits", Filter("(@.id == 'c1')", ()), "message")
+    assert compile_path("$..[?(@.id)]") == (DESCENT, Filter("(@.id)", ()))
+
+
+PUSH = {
+    "commits": [
+        {"id": "c1", "added": 3, "author": {"name": "octocat"}, "labels": ["fix"], "draft": False},
+        {"id": "c2", "added": 12, "author": {"name": "hubot"}, "labels": [], "draft": None},
+        {"id": "c3", "added": 7.5, "author": {"name": "octocat"}, "reviewer": "mona"},
+    ],
+    "labels": ["bug", "ui", "bug"],
+    "checks": {"lint": {"ok": True}, "tests": {"ok": False}},
+}
+
+
+@pytest.mark.parametrize(
+    ("expr", "expected"),
+    [
+        ("$.commits[?(@.author.name == 'octocat')].id", ["c1", "c3"]),
+        ('$.commits[?(@.author.name == "hubot")].id', ["c2"]),
+        ("$.commits[?(@.added > 5)].id", ["c2", "c3"]),
+        ("$.commits[?(@.added <= 7.5)].id", ["c1", "c3"]),
+        ("$.commits[?(@.added == 3.0)].id", ["c1"]),
+        ("$.commits[?(@.added >= 1e1)].id", ["c2"]),
+        ("$.commits[?(@.id < 'c2')].id", ["c1"]),
+        ("$.commits[?(@.reviewer)].id", ["c3"]),
+        ("$.commits[?(@.draft)].id", ["c1", "c2"]),
+        ("$.commits[?(!@.draft)].id", ["c3"]),
+        ("$.commits[?(@.draft == null)].id", ["c2"]),
+        ("$.commits[?(@.draft == false)].id", ["c1"]),
+        ("$.commits[?(@.labels[0] == 'fix')].id", ["c1"]),
+        ("$.commits[?(@['author']['name'] != 'octocat')].id", ["c2"]),
+        ("$.commits[?(@.reviewer != 'mona')].id", ["c1", "c2"]),
+        ("$.commits[?(@.added > 5 && @.author.name == 'octocat')].id", ["c3"]),
+        ("$.commits[?(@.added < 5 || @.reviewer)].id", ["c1", "c3"]),
+        ("$.commits[?(!(@.added < 5 || @.reviewer))].id", ["c2"]),
+        ("$.commits[?(@.id == 'c1')].author.name", ["octocat"]),
+        ("$.commits[?(@.id == 'nope')].id", []),
+        ("$.labels[?(@ == 'bug')]", ["bug", "bug"]),
+        ("$.checks[?(@.ok == true)]", [{"ok": True}]),
+        ("$..[?(@.name == 'hubot')]", [{"name": "hubot"}]),
+        ("$.commits[?(@.id == 'c]1' || @.id == \"c)(\" || @.id == 'c2')].id", ["c2"]),
+        ("$.missing[?(@.id)]", []),
+        ("$.commits[0].id[?(@)]", []),
+    ],
+)
+def test_resolve_filter(expr, expected):
+    assert resolve(PUSH, compile_path(expr)) == expected
+
+
+@pytest.mark.parametrize(
+    ("expr", "expected"),
+    [
+        # JSON types stay apart: true is not 1, "3" is not 3.
+        ("$.items[?(@.v == 1)].k", ["int"]),
+        ("$.items[?(@.v == true)].k", ["bool"]),
+        ("$.items[?(@.v == '3')].k", ["str"]),
+        # Ordering only compares numbers with numbers and strings with strings.
+        ("$.items[?(@.v > 0)].k", ["int"]),
+        ("$.items[?(@.v > 'a')].k", []),
+        ("$.items[?(@.v < 'a')].k", ["str"]),
+        # Comparing two paths of the same element.
+        ("$.items[?(@.v == @.w)].k", ["str"]),
+    ],
+)
+def test_filter_comparisons_respect_json_types(expr, expected):
+    payload = {"items": [{"k": "int", "v": 1}, {"k": "bool", "v": True}, {"k": "str", "v": "3", "w": "3"}]}
+    assert resolve(payload, compile_path(expr)) == expected
+
+
+def test_filter_in_transform_mapping_and_rules_validation():
+    mapping = {"bots": "$.commits[?(@.author.name == 'hubot')].id", "first": "$.commits[0].id"}
+    validate_mapping(mapping)
+    assert apply_transform(mapping, _event(json.dumps(PUSH)), "push") == {"bots": ["c2"], "first": "c1"}
+    with pytest.raises(InvalidTransformError, match="invalid filter"):
+        validate_mapping({"bots": "$.commits[?(@.author.name = 'hubot')]"})
 
 
 def test_resolve_root_returns_whole_payload():

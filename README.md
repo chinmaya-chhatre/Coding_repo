@@ -27,7 +27,7 @@ a replayed request. HookScope makes each of those visible.
 - Slack forwarding: post a readable event summary (repo, sender, PR, Stripe amount...) to a
   Slack incoming webhook
 - Payload transforms: reshape a provider payload into your own schema with JSONPath mappings
-  (including wildcards and `..` recursive descent) before forwarding it
+  (including wildcards, `..` recursive descent and `[?(...)]` filters) before forwarding it
 - Transform preview: try a rule's transform (or an ad-hoc one) against any stored event,
   from the dashboard or with `POST /api/events/{id}/transform-preview`
 - SQLite storage, Docker image, CI on every push
@@ -138,9 +138,17 @@ event metadata, or a nested object:
 
 - Supported JSONPath: `$`, `.key`, `['key']`, `[n]` (negative counts from the end), the
   wildcards `[*]` / `.*`, and recursive descent `..` (`$..id` finds every `id` at any depth;
-  `$..[0]` and `$..*` work too). A path with a wildcard or `..` returns a list of every
-  match; any other path returns one value, or `null` when nothing matches (or the body
-  isn't JSON).
+  `$..[0]` and `$..*` work too), and filters `[?(...)]`. A path with a wildcard, `..` or a
+  filter returns a list of every match; any other path returns one value, or `null` when
+  nothing matches (or the body isn't JSON).
+- Filters keep the list elements (or object values) that match a condition, where `@` is
+  the element: `$.commits[?(@.author.name == 'octocat')].id`, `$..[?(@.amount > 1000)]`,
+  `$.labels[?(@ == 'bug')]`. Compare `@` paths (`.key`, `['key']`, `[n]`) with each other or
+  with strings, numbers, `true`, `false` and `null` using `==` `!=` `<` `<=` `>` `>=`; a bare
+  `@.key` tests that the field exists; combine conditions with `&&`, `||`, `!` and
+  parentheses. Types are kept apart (`true` isn't `1`, `"3"` isn't `3`), `<`/`>` only compare
+  two numbers or two strings, and a missing field equals nothing, so `@.x != 1` also keeps
+  elements without `x`.
 - Metadata references: `@source`, `@event_type`, `@event_id`, `@received_at`, `@verification`.
 - The transformed document is sent as `application/json` with `X-HookScope-Forward`. The
   provider's headers are dropped, since its signature would not match the new body.
@@ -221,7 +229,7 @@ ruff check . && pytest -q
 - [x] Transform preview API (`POST /api/events/{id}/transform-preview`)
 - [x] JSONPath recursive descent (`..`) in transforms
 - [x] Transform preview in the dashboard
-- [ ] Transforms follow-up: JSONPath filter expressions (`[?(...)]`)
+- [x] Transforms follow-up: JSONPath filter expressions (`[?(...)]`)
 - [ ] Retry with exponential backoff + dead-letter view
 - [ ] More providers: Shopify, Slack, Twilio, Svix
 - [ ] Search and date-range filters in the dashboard

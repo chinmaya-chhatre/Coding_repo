@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import time
+from collections.abc import Callable
 from pathlib import Path
 
 import httpx
@@ -13,8 +15,8 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from . import __version__
-from .replay import InvalidTargetError, replay_event
-from .rules import ForwardRule, event_type, forward_event, load_rules, matching_rules
+from .replay import InvalidTargetError, ReplayResult, replay_event
+from .rules import ForwardRule, deliver, event_type, load_rules, matching_rules
 from .signatures import VERIFIERS, verify
 from .store import EventStore
 from .transform import InvalidTransformError, apply_transform, validate_mapping
@@ -49,6 +51,8 @@ def create_app(
     secrets: dict[str, str] | None = None,
     http_client: httpx.Client | None = None,
     rules: list[ForwardRule] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
 ) -> FastAPI:
     store = store or EventStore(os.environ.get("HOOKSCOPE_DB", "hookscope.db"))
     secrets = load_secrets_from_env() if secrets is None else secrets
@@ -59,11 +63,20 @@ def create_app(
         event = store.get(event_id)
         if event is None:
             return
-        for rule in rule_list:
-            result = forward_event(event, rule, http_client)
+
+        def record(rule: ForwardRule, attempt: int, result: ReplayResult) -> None:
+            # Each attempt is stored as it completes, so retries show up while backing off.
             store.add_forward(
-                event_id, rule.name, rule.target_url, result.status_code, result.elapsed_ms, result.error
+                event_id,
+                rule.name,
+                rule.target_url,
+                result.status_code,
+                result.elapsed_ms,
+                result.error,
+                attempt,
             )
+
+        deliver(event, rule_list, http_client, record, sleep, clock)
 
     app = FastAPI(title="HookScope", version=__version__)
 

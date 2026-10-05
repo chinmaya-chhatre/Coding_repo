@@ -26,13 +26,28 @@ into Slack.
 A rule with a ``transform`` mapping sends a new JSON document built from the
 payload with JSONPath expressions (see ``hookscope.transform``). The original
 signature would not match the new body, so provider headers are not sent either.
+
+A rule with a ``retry`` policy re-sends a failed forward with exponential backoff::
+
+    {"name": "ci", "target_url": "http://ci.internal/hook",
+     "retry": {"attempts": 4, "backoff_seconds": 2, "max_backoff_seconds": 60}}
+
+Only transient failures are retried: no response at all (connection error,
+timeout), ``408``, ``425``, ``429`` and ``5xx``. The wait before attempt *n+1*
+is ``backoff_seconds * 2**(n-1)``, raised to the target's ``Retry-After`` when
+it sends one, and capped at ``max_backoff_seconds``. ``"retry": 3`` is short
+for ``{"attempts": 3}``. Without ``retry`` a forward is attempted once.
+Every attempt is recorded, and a rule that is backing off never delays the
+other rules' deliveries for the same event.
 """
 
 from __future__ import annotations
 
+import heapq
 import json
-from collections.abc import Iterable
-from dataclasses import dataclass
+import time
+from collections.abc import Callable, Iterable, Iterator
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import httpx
@@ -52,10 +67,42 @@ from .transform import InvalidTransformError, apply_transform, validate_mapping
 FORWARD_HEADER = "X-HookScope-Forward"
 FORWARDABLE_STATUSES = {"valid", "no_secret"}
 FORMATS = ("raw", "slack")
+RETRYABLE_STATUS_CODES = {408, 425, 429}
+MAX_ATTEMPTS = 10
+MAX_BACKOFF_SECONDS = 3600.0
 
 
 class InvalidRuleError(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class RetryPolicy:
+    """How often, and how patiently, to re-send a forward that failed transiently."""
+
+    attempts: int = 1
+    backoff_seconds: float = 1.0
+    max_backoff_seconds: float = 60.0
+
+    def delay(self, attempt: int, retry_after: float | None = None) -> float:
+        """Seconds to wait after failed attempt number ``attempt`` (1-based)."""
+        wait = self.backoff_seconds * 2 ** (attempt - 1)
+        if retry_after is not None:
+            wait = max(wait, retry_after)
+        return min(wait, self.max_backoff_seconds)
+
+    def to_dict(self) -> dict:
+        return {
+            "attempts": self.attempts,
+            "backoff_seconds": self.backoff_seconds,
+            "max_backoff_seconds": self.max_backoff_seconds,
+        }
+
+
+def is_retryable(result: ReplayResult) -> bool:
+    """Transient failures worth another try: no response, 408/425/429 or a server error."""
+    status = result.status_code
+    return status is None or status in RETRYABLE_STATUS_CODES or status >= 500
 
 
 @dataclass(frozen=True)
@@ -66,6 +113,7 @@ class ForwardRule:
     event_types: tuple[str, ...] = ()
     format: str = "raw"
     transform: dict | None = None
+    retry: RetryPolicy = field(default_factory=RetryPolicy)
 
     def matches(self, event: dict) -> bool:
         if event["verification"] not in FORWARDABLE_STATUSES:
@@ -84,6 +132,7 @@ class ForwardRule:
             "event_types": list(self.event_types),
             "format": self.format,
             "transform": self.transform,
+            "retry": self.retry.to_dict(),
         }
 
 
@@ -153,8 +202,39 @@ def parse_rules(data: object) -> list[ForwardRule]:
             except InvalidTransformError as exc:
                 raise InvalidRuleError(f"rule '{name}': {exc}") from exc
 
-        rules.append(ForwardRule(name, target_url, source, tuple(event_types), fmt, transform))
+        retry = parse_retry(raw.get("retry"), name)
+        rules.append(ForwardRule(name, target_url, source, tuple(event_types), fmt, transform, retry))
     return rules
+
+
+def parse_retry(raw: object, name: str) -> RetryPolicy:
+    """Validate a rule's ``retry`` setting: omitted, an attempt count, or a policy object."""
+    if raw is None:
+        return RetryPolicy()
+    if isinstance(raw, int) and not isinstance(raw, bool):
+        raw = {"attempts": raw}
+    if not isinstance(raw, dict):
+        raise InvalidRuleError(f"rule '{name}': retry must be a number of attempts or an object")
+    unknown = sorted(set(raw) - {"attempts", "backoff_seconds", "max_backoff_seconds"})
+    if unknown:
+        raise InvalidRuleError(f"rule '{name}': unknown retry setting(s) {unknown}")
+
+    defaults = RetryPolicy()
+    attempts = raw.get("attempts", defaults.attempts)
+    if isinstance(attempts, bool) or not isinstance(attempts, int) or not 1 <= attempts <= MAX_ATTEMPTS:
+        raise InvalidRuleError(f"rule '{name}': retry attempts must be an integer from 1 to {MAX_ATTEMPTS}")
+    values = {}
+    for key in ("backoff_seconds", "max_backoff_seconds"):
+        value = raw.get(key, getattr(defaults, key))
+        is_number = isinstance(value, int | float) and not isinstance(value, bool)
+        if not is_number or not 0 <= value <= MAX_BACKOFF_SECONDS:
+            raise InvalidRuleError(
+                f"rule '{name}': retry {key} must be a number from 0 to {MAX_BACKOFF_SECONDS:g}"
+            )
+        values[key] = float(value)
+    if values["max_backoff_seconds"] < values["backoff_seconds"]:
+        raise InvalidRuleError(f"rule '{name}': retry max_backoff_seconds is less than backoff_seconds")
+    return RetryPolicy(attempts, values["backoff_seconds"], values["max_backoff_seconds"])
 
 
 def load_rules(path: str | None) -> list[ForwardRule]:
@@ -190,3 +270,46 @@ def forward_event(event: dict, rule: ForwardRule, client: httpx.Client) -> Repla
     headers.pop(REPLAY_HEADER, None)
     headers[FORWARD_HEADER] = rule.name
     return replay_event(event, rule.target_url, client, headers=headers)
+
+
+def forward_attempts(
+    event: dict, rule: ForwardRule, client: httpx.Client
+) -> Iterator[tuple[int, ReplayResult, float | None]]:
+    """Forward the event lazily, one attempt per ``next()``, following the rule's retry policy.
+
+    Yields ``(attempt, result, delay)`` where ``delay`` is how long to wait before the
+    next attempt, or None when there is none (success, permanent failure, or out of attempts).
+    """
+    for attempt in range(1, rule.retry.attempts + 1):
+        result = forward_event(event, rule, client)
+        if attempt == rule.retry.attempts or not is_retryable(result):
+            yield attempt, result, None
+            return
+        yield attempt, result, rule.retry.delay(attempt, result.retry_after)
+
+
+def deliver(
+    event: dict,
+    rules: Iterable[ForwardRule],
+    client: httpx.Client,
+    record: Callable[[ForwardRule, int, ReplayResult], None],
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+) -> None:
+    """Forward an event to every rule, interleaving retries.
+
+    Every rule gets its first attempt straight away; retries wait for their backoff
+    without holding up the other rules. ``record`` is called after each attempt.
+    """
+    now = clock()
+    queue = [(now, index, rule, forward_attempts(event, rule, client)) for index, rule in enumerate(rules)]
+    heapq.heapify(queue)
+    while queue:
+        due, index, rule, attempts = heapq.heappop(queue)
+        wait = due - clock()
+        if wait > 0:
+            sleep(wait)
+        attempt, result, delay = next(attempts)
+        record(rule, attempt, result)
+        if delay is not None:
+            heapq.heappush(queue, (clock() + delay, index, rule, attempts))

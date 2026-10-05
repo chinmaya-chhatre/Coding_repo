@@ -9,7 +9,9 @@ headers stay intact and the target can verify the replayed request.
 from __future__ import annotations
 
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse
 
 import httpx
@@ -31,13 +33,17 @@ class ReplayResult:
     elapsed_ms: int
     response_body: str = ""
     error: str = ""
+    # Seconds the target asked us to wait (``Retry-After``); used by forwarding retries only.
+    retry_after: float | None = field(default=None, compare=False)
 
     @property
     def ok(self) -> bool:
         return self.status_code is not None and self.status_code < 400
 
     def to_dict(self) -> dict:
-        return {**asdict(self), "ok": self.ok}
+        data = asdict(self)
+        data.pop("retry_after")
+        return {**data, "ok": self.ok}
 
 
 def validate_target(url: str) -> str:
@@ -69,7 +75,24 @@ def replay_event(
         response.status_code,
         _elapsed_ms(started),
         response_body=response.text[:MAX_RESPONSE_CHARS],
+        retry_after=parse_retry_after(response.headers.get("retry-after")),
     )
+
+
+def parse_retry_after(value: str | None, now: datetime | None = None) -> float | None:
+    """Seconds to wait from a ``Retry-After`` header (delay-seconds or HTTP-date); None if absent/invalid."""
+    if not value:
+        return None
+    value = value.strip()
+    if value.isdigit():
+        return float(value)
+    try:
+        when = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return max(0.0, (when - (now or datetime.now(UTC))).total_seconds())
 
 
 def _elapsed_ms(started: float) -> int:

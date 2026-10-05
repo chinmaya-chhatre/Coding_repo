@@ -83,10 +83,11 @@
     <section class="forwards" aria-label="Forwards for event {{ e.id }}">
       <h2>Forwards</h2>
       <table>
-        <tr><th>Rule</th><th>Target</th><th>Result</th><th>Time</th><th>At</th></tr>
+        <tr><th>Rule</th><th>Attempt</th><th>Target</th><th>Result</th><th>Time</th><th>At</th></tr>
         {% for f in e.forwards %}
         <tr>
           <td>{{ f.rule }}</td>
+          <td>{{ f.attempt }}</td>
           <td class="target">{{ f.target_url }}</td>
           {% if f.status_code is none %}
           <td class="fwd-err">{{ f.error or "no response" }}</td>

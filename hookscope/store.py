@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS forwards (
     forwarded_at  TEXT NOT NULL,
     status_code   INTEGER,
     elapsed_ms    INTEGER NOT NULL,
-    error         TEXT NOT NULL DEFAULT ''
+    error         TEXT NOT NULL DEFAULT '',
+    attempt       INTEGER NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS forwards_event_id ON forwards(event_id);
 """
@@ -38,6 +39,7 @@ class EventStore:
         self.path = path
         with self._connect() as conn:
             conn.executescript(SCHEMA)
+            _migrate(conn)
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -90,13 +92,14 @@ class EventStore:
         status_code: int | None,
         elapsed_ms: int,
         error: str = "",
+        attempt: int = 1,
     ) -> int:
         with self._connect() as conn:
             cur = conn.execute(
                 "INSERT INTO forwards "
-                "(event_id, rule, target_url, forwarded_at, status_code, elapsed_ms, error) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (event_id, rule, target_url, _now(), status_code, elapsed_ms, error),
+                "(event_id, rule, target_url, forwarded_at, status_code, elapsed_ms, error, attempt) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (event_id, rule, target_url, _now(), status_code, elapsed_ms, error, attempt),
             )
             return int(cur.lastrowid)
 
@@ -120,6 +123,13 @@ class EventStore:
         for row in rows:
             grouped[row["event_id"]].append(dict(row))
         return grouped
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Bring databases created by older versions up to the current schema."""
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(forwards)")}
+    if "attempt" not in columns:
+        conn.execute("ALTER TABLE forwards ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1")
 
 
 def _now() -> str:

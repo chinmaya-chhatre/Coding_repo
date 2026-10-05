@@ -120,6 +120,7 @@ def test_rules_endpoint_lists_configured_rules(tmp_path):
             "event_types": ["push"],
             "format": "raw",
             "transform": None,
+            "retry": {"attempts": 1, "backoff_seconds": 1.0, "max_backoff_seconds": 60.0},
         }
     ]
 

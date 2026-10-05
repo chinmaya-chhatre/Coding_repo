@@ -24,6 +24,7 @@ a replayed request. HookScope makes each of those visible.
 - Replay any captured event to another URL with its original headers, so signatures still verify
 - Forwarding rules: fan accepted events out to one or more URLs by source and event type,
   with every attempt recorded (`GET /api/events/{id}/forwards`) and shown in the dashboard
+- Forward retries: re-send failed forwards with exponential backoff, honouring `Retry-After`
 - Slack forwarding: post a readable event summary (repo, sender, PR, Stripe amount...) to a
   Slack incoming webhook
 - Payload transforms: reshape a provider payload into your own schema with JSONPath mappings
@@ -101,6 +102,28 @@ file and point `HOOKSCOPE_RULES` at it:
   flags events with failed forwards in the event summary.
 
 An invalid rules file stops HookScope at startup with a message naming the bad rule.
+
+#### Retrying failed forwards
+
+By default each forward is attempted once. Give a rule a `retry` policy to re-send
+transient failures with exponential backoff:
+
+```json
+{"name": "ci", "source": "github", "target_url": "http://localhost:3000/github",
+ "retry": {"attempts": 4, "backoff_seconds": 2, "max_backoff_seconds": 60}}
+```
+
+- Retried: no response at all (connection refused, timeout), `408`, `425`, `429` and `5xx`.
+  Successes and other `4xx` responses are final.
+- The wait after attempt *n* is `backoff_seconds × 2^(n-1)` (2 s, 4 s, 8 s above), raised to
+  the target's `Retry-After` (seconds or an HTTP date) when it sends one, and capped at
+  `max_backoff_seconds`.
+- `attempts` is 1–10; `backoff_seconds` defaults to 1 and `max_backoff_seconds` to 60
+  (at most 3600). `"retry": 3` is short for `{"attempts": 3}`.
+- Every attempt is stored with its `attempt` number, in the forwards API and the dashboard.
+  All matched rules get their first attempt immediately; a rule that is backing off does
+  not delay the others.
+- Retries run inside the HookScope process, so pending retries are lost on restart.
 
 #### Sending events to Slack
 
@@ -230,7 +253,8 @@ ruff check . && pytest -q
 - [x] JSONPath recursive descent (`..`) in transforms
 - [x] Transform preview in the dashboard
 - [x] Transforms follow-up: JSONPath filter expressions (`[?(...)]`)
-- [ ] Retry with exponential backoff + dead-letter view
+- [x] Retry failed forwards with exponential backoff (per-rule `retry` policy, `Retry-After`)
+- [ ] Dead-letter view: forwards that exhausted their retries, with one-click re-send
 - [ ] More providers: Shopify, Slack, Twilio, Svix
 - [ ] Search and date-range filters in the dashboard
 - [ ] Prometheus `/metrics` (deliveries by source and verification status)

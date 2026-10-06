@@ -38,6 +38,17 @@
     .forwards th { color:var(--muted); font-weight:500; }
     .forwards td.target { word-break:break-all; }
     .fwd-ok { color:var(--ok); } .fwd-err { color:var(--bad); }
+    .dead { background:var(--card); border:1px solid var(--bad); border-radius:8px; margin:12px 0; padding:10px 14px;
+            font-size:13px; overflow-x:auto; }
+    .dead h2 { margin:0 0 6px; font-size:14px; color:var(--bad); }
+    .dead table { border-collapse:collapse; width:100%; }
+    .dead th, .dead td { text-align:left; padding:3px 12px 3px 0; vertical-align:top; }
+    .dead th { color:var(--muted); font-weight:500; }
+    .dead td.target { word-break:break-all; }
+    .dead button { padding:3px 10px; font:inherit; cursor:pointer; color:var(--text);
+                   background:var(--card); border:1px solid var(--border); border-radius:6px; }
+    .dead button:disabled { opacity:.6; cursor:wait; }
+    .dead-result { margin:0; }
     .preview { display:flex; gap:8px; flex-wrap:wrap; padding:10px 14px; border-top:1px solid var(--border); }
     .preview select, .preview textarea { font:inherit; color:var(--text); background:var(--bg);
                                          border:1px solid var(--border); border-radius:6px; padding:6px 8px; }
@@ -59,6 +70,27 @@
     <a href="/" class="{{ 'active' if not active }}">all</a>
     {% for s in sources %}<a href="/?source={{ s }}" class="{{ 'active' if active == s }}">{{ s }}</a>{% endfor %}
   </nav>
+  {% if dead_letters %}
+  <section class="dead" aria-label="Dead letters">
+    <h2>Dead letters ({{ dead_letters | length }})</h2>
+    <p class="muted">Forwards whose retries are used up or that failed permanently.</p>
+    <table>
+      <tr><th>Event</th><th>Rule</th><th>Target</th><th>Last result</th><th>Attempts</th><th>At</th><th></th></tr>
+      {% for d in dead_letters %}
+      <tr data-event-id="{{ d.event_id }}" data-rule="{{ d.rule }}">
+        <td>#{{ d.event_id }}</td>
+        <td>{{ d.rule }}</td>
+        <td class="target">{{ d.target_url }}</td>
+        <td class="fwd-err">{% if d.status_code is none %}{{ d.error or "no response" }}{% else %}HTTP {{ d.status_code }}{% endif %}</td>
+        <td>{{ d.attempt }}</td>
+        <td class="muted">{{ d.forwarded_at }}</td>
+        <td>{% if d.resendable %}<button type="button" class="resend">Re-send</button>
+          <span class="dead-result" role="status"></span>{% else %}<span class="muted">rule removed</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </section>
+  {% endif %}
   {% if not events %}
     <p class="muted">No events yet. Try <code>python scripts/send_test_webhook.py</code>.</p>
   {% endif %}
@@ -162,6 +194,32 @@
       } finally {
         button.disabled = false;
       }
+    });
+  }
+
+  for (const button of document.querySelectorAll(".dead button.resend")) {
+    const row = button.closest("tr");
+    const result = row.querySelector(".dead-result");
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      result.textContent = " Sending…";
+      try {
+        const resp = await fetch(
+          `/api/events/${row.dataset.eventId}/forwards/${encodeURIComponent(row.dataset.rule)}/resend`,
+          { method: "POST" });
+        const data = await resp.json();
+        if (resp.ok && data.ok) {
+          location.reload();
+          return;
+        }
+        result.className = "dead-result fwd-err";
+        result.textContent = typeof data.detail === "string" ? ` ${data.detail}`
+          : data.status_code === null ? ` No response: ${data.error}` : ` HTTP ${data.status_code}`;
+      } catch (err) {
+        result.className = "dead-result fwd-err";
+        result.textContent = ` Re-send failed: ${err}`;
+      }
+      button.disabled = false;
     });
   }
 

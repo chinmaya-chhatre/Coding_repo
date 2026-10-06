@@ -110,6 +110,15 @@ class EventStore:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def latest_forwards(self) -> list[dict]:
+        """The most recent attempt for each (event, rule) pair, newest first."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM forwards WHERE id IN "
+                "(SELECT MAX(id) FROM forwards GROUP BY event_id, rule) ORDER BY id DESC"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def forwards_by_event(self, event_ids: list[int]) -> dict[int, list[dict]]:
         """Forward attempts for several events in one query, keyed by event id."""
         grouped: dict[int, list[dict]] = {event_id: [] for event_id in event_ids}

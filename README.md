@@ -25,6 +25,8 @@ a replayed request. HookScope makes each of those visible.
 - Forwarding rules: fan accepted events out to one or more URLs by source and event type,
   with every attempt recorded (`GET /api/events/{id}/forwards`) and shown in the dashboard
 - Forward retries: re-send failed forwards with exponential backoff, honouring `Retry-After`
+- Dead letters: forwards that exhausted their retries (or failed permanently) are listed in the
+  dashboard and `GET /api/dead-letters`, with one-click re-send
 - Slack forwarding: post a readable event summary (repo, sender, PR, Stripe amount...) to a
   Slack incoming webhook
 - Payload transforms: reshape a provider payload into your own schema with JSONPath mappings
@@ -124,6 +126,26 @@ transient failures with exponential backoff:
   All matched rules get their first attempt immediately; a rule that is backing off does
   not delay the others.
 - Retries run inside the HookScope process, so pending retries are lost on restart.
+
+#### Dead letters and re-sending
+
+A forward becomes a *dead letter* when its latest attempt failed and nothing will retry it:
+the retries are used up, the target answered with a permanent error (a non-retryable `4xx`),
+or the rule is no longer in the rules file. A forward that is still backing off is not
+listed. The dashboard shows them in a **Dead letters** section at the top, and the API lists
+them too:
+
+```bash
+curl http://localhost:8000/api/dead-letters
+curl -X POST http://localhost:8000/api/events/1/forwards/ci/resend
+```
+
+Re-send forwards the stored event once more through the same rule (same transform or Slack
+format, current target URL) and records it as the next attempt. If it succeeds the entry
+leaves the list; if not, it stays with the new result. Re-send answers `200` with the
+target's outcome (`ok`, `status_code`, ...), `502` when the target can't be reached, and
+`404` for an unknown event or rule, or one the rule never forwarded. Entries whose rule has
+been removed are listed but can't be re-sent.
 
 #### Sending events to Slack
 
@@ -254,7 +276,7 @@ ruff check . && pytest -q
 - [x] Transform preview in the dashboard
 - [x] Transforms follow-up: JSONPath filter expressions (`[?(...)]`)
 - [x] Retry failed forwards with exponential backoff (per-rule `retry` policy, `Retry-After`)
-- [ ] Dead-letter view: forwards that exhausted their retries, with one-click re-send
+- [x] Dead-letter view: forwards that exhausted their retries, with one-click re-send
 - [ ] More providers: Shopify, Slack, Twilio, Svix
 - [ ] Search and date-range filters in the dashboard
 - [ ] Prometheus `/metrics` (deliveries by source and verification status)

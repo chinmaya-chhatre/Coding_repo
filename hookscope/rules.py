@@ -99,10 +99,28 @@ class RetryPolicy:
         }
 
 
+def status_is_retryable(status: int | None) -> bool:
+    return status is None or status in RETRYABLE_STATUS_CODES or status >= 500
+
+
 def is_retryable(result: ReplayResult) -> bool:
     """Transient failures worth another try: no response, 408/425/429 or a server error."""
-    status = result.status_code
-    return status is None or status in RETRYABLE_STATUS_CODES or status >= 500
+    return status_is_retryable(result.status_code)
+
+
+def is_dead_letter(forward: dict, rule: ForwardRule | None) -> bool:
+    """Whether a (rule, event)'s latest stored attempt is a failure that nothing will retry.
+
+    A failure is dead when the error is permanent (a non-retryable 4xx), the rule's attempts
+    are used up, or the rule no longer exists. A transient failure with attempts left is
+    still backing off, so it is not dead yet.
+    """
+    status = forward["status_code"]
+    if status is not None and 200 <= status < 300:
+        return False
+    if rule is None or not status_is_retryable(status):
+        return True
+    return forward["attempt"] >= rule.retry.attempts
 
 
 @dataclass(frozen=True)

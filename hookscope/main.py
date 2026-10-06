@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 from . import __version__
 from .replay import InvalidTargetError, ReplayResult, replay_event
-from .rules import ForwardRule, deliver, event_type, load_rules, matching_rules
+from .rules import ForwardRule, deliver, event_type, forward_event, is_dead_letter, load_rules, matching_rules
 from .signatures import VERIFIERS, verify
 from .store import EventStore
 from .transform import InvalidTransformError, apply_transform, validate_mapping
@@ -78,6 +78,16 @@ def create_app(
 
         deliver(event, rule_list, http_client, record, sleep, clock)
 
+    def dead_letters(limit: int | None = None) -> list[dict]:
+        by_name = {rule.name: rule for rule in rules}
+        dead = []
+        for forward in store.latest_forwards():
+            rule = by_name.get(forward["rule"])
+            if is_dead_letter(forward, rule):
+                # A rule removed from the rules file can no longer be re-sent.
+                dead.append({**forward, "resendable": rule is not None})
+        return dead[:limit]
+
     app = FastAPI(title="HookScope", version=__version__)
 
     @app.get("/healthz")
@@ -132,6 +142,32 @@ def create_app(
         if store.get(event_id) is None:
             raise HTTPException(404, "event not found")
         return store.list_forwards(event_id)
+
+    @app.get("/api/dead-letters")
+    def list_dead_letters(limit: int = 100) -> list[dict]:
+        """Forwards whose latest attempt failed for good (retries exhausted or a permanent error)."""
+        return dead_letters(min(limit, 500))
+
+    @app.post("/api/events/{event_id}/forwards/{rule_name}/resend")
+    def resend_forward(event_id: int, rule_name: str) -> JSONResponse:
+        event = store.get(event_id)
+        if event is None:
+            raise HTTPException(404, "event not found")
+        rule = next((r for r in rules if r.name == rule_name), None)
+        if rule is None:
+            raise HTTPException(404, f"unknown rule '{rule_name}'")
+        history = [f for f in store.list_forwards(event_id) if f["rule"] == rule_name]
+        if not history:
+            raise HTTPException(404, f"event {event_id} was never forwarded by rule '{rule_name}'")
+        result = forward_event(event, rule, http_client)
+        attempt = history[-1]["attempt"] + 1
+        store.add_forward(
+            event_id, rule.name, rule.target_url, result.status_code, result.elapsed_ms, result.error, attempt
+        )
+        return JSONResponse(
+            {**result.to_dict(), "rule": rule.name, "attempt": attempt},
+            status_code=502 if result.status_code is None else 200,
+        )
 
     @app.get("/api/rules")
     def list_rules() -> list[dict]:
@@ -195,6 +231,7 @@ def create_app(
                 "sources": sorted(VERIFIERS),
                 "active": source,
                 "configured": sorted(secrets),
+                "dead_letters": dead_letters(),
                 # Rule mappings let the preview form start from a rule's transform and tweak it.
                 "transform_rules": {rule.name: rule.transform for rule in rules if rule.transform},
             },

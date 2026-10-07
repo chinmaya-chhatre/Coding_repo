@@ -109,6 +109,10 @@ def create_app(
             verification=result.status,
             reason=result.reason,
         )
+        challenge = _slack_challenge(source, body) if not result.rejected else None
+        if challenge is not None:
+            # Slack's endpoint verification handshake: echo the challenge, never forward it.
+            return JSONResponse({"challenge": challenge}, status_code=200)
         # Forward after responding so a slow target never delays the provider's delivery.
         to_forward = matching_rules(store.get(event_id), rules)
         if to_forward:
@@ -250,6 +254,20 @@ def _pretty(body: str) -> str:
         return json.dumps(json.loads(body), indent=2)
     except ValueError:
         return body
+
+
+def _slack_challenge(source: str, body: bytes) -> str | None:
+    """The ``challenge`` of a Slack ``url_verification`` request, which must be echoed back."""
+    if source != "slack":
+        return None
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        return None
+    if not isinstance(payload, dict) or payload.get("type") != "url_verification":
+        return None
+    challenge = payload.get("challenge")
+    return challenge if isinstance(challenge, str) else None
 
 
 app = create_app()

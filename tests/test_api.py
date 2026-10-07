@@ -1,6 +1,8 @@
 import base64
 import hashlib
 import hmac
+import json
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -86,3 +88,38 @@ def test_shopify_webhook_is_verified(tmp_path):
 
     assert ok.status_code == 202 and ok.json()["verification"] == "valid"
     assert bad.status_code == 401 and bad.json()["verification"] == "invalid"
+
+
+def _slack_client(tmp_path) -> TestClient:
+    store = EventStore(str(tmp_path / "slack.db"))
+    return TestClient(create_app(store=store, secrets={"slack": SECRET}))
+
+
+def _slack_post(client: TestClient, payload: dict, secret: str = SECRET):
+    body = json.dumps(payload).encode()
+    ts = str(int(time.time()))
+    sig = hmac.new(secret.encode(), b"v0:" + ts.encode() + b":" + body, hashlib.sha256).hexdigest()
+    headers = {"X-Slack-Request-Timestamp": ts, "X-Slack-Signature": f"v0={sig}"}
+    return client.post("/hooks/slack", content=body, headers=headers)
+
+
+def test_slack_url_verification_echoes_challenge(tmp_path):
+    client = _slack_client(tmp_path)
+    resp = _slack_post(client, {"type": "url_verification", "challenge": "3eZbrw1aBm2rZgRNFdxV"})
+    assert resp.status_code == 200
+    assert resp.json() == {"challenge": "3eZbrw1aBm2rZgRNFdxV"}
+    assert client.get("/api/events").json()[0]["verification"] == "valid"
+
+
+def test_slack_url_verification_with_bad_signature_is_rejected(tmp_path):
+    client = _slack_client(tmp_path)
+    resp = _slack_post(client, {"type": "url_verification", "challenge": "abc"}, secret="wrong")
+    assert resp.status_code == 401
+    assert "challenge" not in resp.json()
+
+
+def test_slack_event_callback_is_accepted(tmp_path):
+    client = _slack_client(tmp_path)
+    resp = _slack_post(client, {"type": "event_callback", "event": {"type": "app_mention"}})
+    assert resp.status_code == 202
+    assert resp.json()["verification"] == "valid"

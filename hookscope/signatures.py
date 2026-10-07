@@ -17,6 +17,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 STRIPE_TOLERANCE_SECONDS = 300
+SLACK_TOLERANCE_SECONDS = 300
 
 
 @dataclass(frozen=True)
@@ -87,6 +88,33 @@ def verify_stripe(
     return VerificationResult("valid")
 
 
+def verify_slack(
+    body: bytes,
+    headers: Mapping[str, str],
+    secret: str,
+    now: float | None = None,
+) -> VerificationResult:
+    """Slack: ``X-Slack-Signature: v0=<hex hmac of "v0:<ts>:body">`` plus ``X-Slack-Request-Timestamp``."""
+    received = _get_header(headers, "X-Slack-Signature")
+    timestamp = _get_header(headers, "X-Slack-Request-Timestamp")
+    if not received:
+        return VerificationResult("unsigned", "missing X-Slack-Signature header")
+    version, _, digest = received.partition("=")
+    if version != "v0" or not digest:
+        return VerificationResult("invalid", "expected format v0=<hex>")
+    if not timestamp or not timestamp.isdigit():
+        return VerificationResult("invalid", "missing or malformed X-Slack-Request-Timestamp header")
+
+    now = time.time() if now is None else now
+    if abs(now - int(timestamp)) > SLACK_TOLERANCE_SECONDS:
+        return VerificationResult("invalid", "timestamp outside tolerance (possible replay)")
+
+    expected = _hmac_sha256_hex(secret, b"v0:" + timestamp.encode() + b":" + body)
+    if not hmac.compare_digest(expected, digest):
+        return VerificationResult("invalid", "signature mismatch")
+    return VerificationResult("valid")
+
+
 def verify_generic(body: bytes, headers: Mapping[str, str], secret: str) -> VerificationResult:
     """Generic: ``X-Signature: <hex hmac of body>``."""
     received = _get_header(headers, "X-Signature")
@@ -116,6 +144,7 @@ VERIFIERS: dict[str, Callable[[bytes, Mapping[str, str], str], VerificationResul
     "github": verify_github,
     "stripe": verify_stripe,
     "shopify": verify_shopify,
+    "slack": verify_slack,
     "generic": verify_generic,
 }
 

@@ -2,7 +2,9 @@ import base64
 import hashlib
 import hmac
 
-from hookscope.signatures import verify, verify_github, verify_shopify, verify_stripe
+import pytest
+
+from hookscope.signatures import verify, verify_github, verify_shopify, verify_slack, verify_stripe
 
 SECRET = "s3cret"
 BODY = b'{"hello": "world"}'
@@ -82,3 +84,39 @@ def test_shopify_malformed_base64():
 
 def test_shopify_missing_header():
     assert verify_shopify(BODY, {}, SECRET).status == "unsigned"
+
+
+def _slack_headers(ts: str, body: bytes = BODY) -> dict:
+    signature = _hex(b"v0:" + ts.encode() + b":" + body)
+    return {"X-Slack-Request-Timestamp": ts, "X-Slack-Signature": f"v0={signature}"}
+
+
+def test_slack_valid():
+    assert verify_slack(BODY, _slack_headers("1700000000"), SECRET, now=1700000030).status == "valid"
+
+
+def test_slack_tampered_body():
+    result = verify_slack(b'{"hello": "evil"}', _slack_headers("1700000000"), SECRET, now=1700000030)
+    assert result.status == "invalid"
+
+
+def test_slack_rejects_old_timestamp():
+    result = verify_slack(BODY, _slack_headers("1700000000"), SECRET, now=1700000000 + 3600)
+    assert result.status == "invalid"
+    assert "tolerance" in result.reason
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"X-Slack-Signature": "v1=abc", "X-Slack-Request-Timestamp": "1700000000"},
+        {"X-Slack-Signature": "v0=abc"},
+        {"X-Slack-Signature": "v0=abc", "X-Slack-Request-Timestamp": "yesterday"},
+    ],
+)
+def test_slack_malformed_headers(headers):
+    assert verify_slack(BODY, headers, SECRET, now=1700000000).status == "invalid"
+
+
+def test_slack_missing_signature():
+    assert verify_slack(BODY, {"X-Slack-Request-Timestamp": "1700000000"}, SECRET).status == "unsigned"

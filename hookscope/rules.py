@@ -160,7 +160,8 @@ EVENT_TYPE_HEADERS = {"github": "x-github-event", "shopify": "x-shopify-topic"}
 
 def event_type(event: dict) -> str | None:
     """Provider-specific event type: a header for GitHub (``X-GitHub-Event``) and Shopify
-    (``X-Shopify-Topic``), else the JSON body's ``type``."""
+    (``X-Shopify-Topic``), the inner ``event.type`` for Slack ``event_callback`` payloads,
+    else the JSON body's ``type``."""
     header = EVENT_TYPE_HEADERS.get(event["source"])
     if header:
         for key, value in event["headers"].items():
@@ -171,7 +172,12 @@ def event_type(event: dict) -> str | None:
         payload = json.loads(event["body"])
     except ValueError:
         return None
-    value = payload.get("type") if isinstance(payload, dict) else None
+    if not isinstance(payload, dict):
+        return None
+    if event["source"] == "slack" and payload.get("type") == "event_callback":
+        inner = payload.get("event")
+        payload = inner if isinstance(inner, dict) else {}
+    value = payload.get("type")
     return value if isinstance(value, str) else None
 
 

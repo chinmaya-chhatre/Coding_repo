@@ -125,6 +125,9 @@ def test_rules_endpoint_lists_configured_rules(tmp_path):
     ]
 
 
+SLACK_CALLBACK = '{"type": "event_callback", "event": {"type": "message"}}'
+
+
 @pytest.mark.parametrize(
     ("event", "expected"),
     [
@@ -133,6 +136,9 @@ def test_rules_endpoint_lists_configured_rules(tmp_path):
         ({"source": "stripe", "headers": {}, "body": '{"type": "invoice.paid"}'}, "invoice.paid"),
         ({"source": "shopify", "headers": {"X-Shopify-Topic": "orders/create"}, "body": ""}, "orders/create"),
         ({"source": "shopify", "headers": {}, "body": '{"type": "x"}'}, None),
+        ({"source": "slack", "headers": {}, "body": SLACK_CALLBACK}, "message"),
+        ({"source": "slack", "headers": {}, "body": '{"type": "event_callback"}'}, None),
+        ({"source": "slack", "headers": {}, "body": '{"type": "url_verification"}'}, "url_verification"),
         ({"source": "generic", "headers": {}, "body": "not json"}, None),
         ({"source": "generic", "headers": {}, "body": "[1, 2]"}, None),
         ({"source": "generic", "headers": {}, "body": '{"type": 5}'}, None),

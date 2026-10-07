@@ -13,13 +13,15 @@ a replayed request. HookScope makes each of those visible.
 
 ## Features
 
-- `POST /hooks/{source}` receiver for `github`, `stripe`, `shopify`, `slack` and `generic` HMAC-SHA256
+- `POST /hooks/{source}` receiver for `github`, `stripe`, `shopify`, `slack`, `twilio` and `generic` signed webhooks
 - Signature verification with constant-time comparison
   - GitHub `X-Hub-Signature-256`
   - Stripe `Stripe-Signature` including timestamp tolerance (replay protection)
   - Shopify `X-Shopify-Hmac-Sha256` (base64 digest)
   - Slack `X-Slack-Signature` with `X-Slack-Request-Timestamp` tolerance; the Events API
     `url_verification` handshake is answered automatically
+  - Twilio `X-Twilio-Signature` (HMAC-SHA1 of the request URL plus sorted form parameters,
+    or the `bodySHA256` query parameter for JSON bodies)
   - Generic `X-Signature`
 - Rejected deliveries return `401` **but are still stored**, so you can see why they failed
 - Web dashboard with per-source filtering, pretty-printed JSON and one-click replay
@@ -242,10 +244,15 @@ docker run -p 8000:8000 -e HOOKSCOPE_SECRET_GITHUB=dev-secret -v hookscope-data:
 | `HOOKSCOPE_SECRET_STRIPE` | Stripe endpoint signing secret (`whsec_...`) | unset |
 | `HOOKSCOPE_SECRET_SHOPIFY` | Shopify app client secret (signs webhooks) | unset |
 | `HOOKSCOPE_SECRET_SLACK` | Slack app signing secret | unset |
+| `HOOKSCOPE_SECRET_TWILIO` | Twilio account auth token | unset |
 | `HOOKSCOPE_SECRET_GENERIC` | Shared secret for `X-Signature` | unset |
 | `HOOKSCOPE_RULES` | Path to a JSON file of forwarding rules | unset (no forwarding) |
 
 A source without a secret accepts every delivery and marks it `no_secret`.
+
+Twilio signs the exact public URL it calls, so behind a reverse proxy or TLS terminator
+run uvicorn with `--proxy-headers --forwarded-allow-ips='*'` (or your proxy's IP) so the
+scheme and host HookScope sees match what Twilio signed.
 
 ## Architecture
 
@@ -283,7 +290,8 @@ ruff check . && pytest -q
 - [x] Transforms follow-up: JSONPath filter expressions (`[?(...)]`)
 - [x] Retry failed forwards with exponential backoff (per-rule `retry` policy, `Retry-After`)
 - [x] Dead-letter view: forwards that exhausted their retries, with one-click re-send
-- [ ] More providers: Shopify, Slack, Twilio, Svix
+- [x] More providers: Shopify, Slack (with URL verification), Twilio
+- [ ] More providers: Svix
 - [ ] Search and date-range filters in the dashboard
 - [ ] Prometheus `/metrics` (deliveries by source and verification status)
 - [ ] Retention policy / auto-purge

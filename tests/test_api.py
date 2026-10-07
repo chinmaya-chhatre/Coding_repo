@@ -123,3 +123,21 @@ def test_slack_event_callback_is_accepted(tmp_path):
     resp = _slack_post(client, {"type": "event_callback", "event": {"type": "app_mention"}})
     assert resp.status_code == 202
     assert resp.json()["verification"] == "valid"
+
+
+def test_twilio_webhook_is_verified_against_request_url(tmp_path):
+    store = EventStore(str(tmp_path / "twilio.db"))
+    client = TestClient(create_app(store=store, secrets={"twilio": SECRET}))
+    body = b"From=%2B15551230000&Body=STATUS&MessageSid=SM123"
+    # TestClient requests go to http://testserver, so that is the URL Twilio would have signed.
+    signed = "http://testserver/hooks/twilio" + "".join(
+        k + v for k, v in sorted([("From", "+15551230000"), ("Body", "STATUS"), ("MessageSid", "SM123")])
+    )
+    sig = base64.b64encode(hmac.new(SECRET.encode(), signed.encode(), hashlib.sha1).digest()).decode()
+    form = {"Content-Type": "application/x-www-form-urlencoded"}
+
+    ok = client.post("/hooks/twilio", content=body, headers={**form, "X-Twilio-Signature": sig})
+    bad = client.post("/hooks/twilio?x=1", content=body, headers={**form, "X-Twilio-Signature": sig})
+
+    assert ok.status_code == 202 and ok.json()["verification"] == "valid"
+    assert bad.status_code == 401

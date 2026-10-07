@@ -14,6 +14,7 @@ import hmac
 import json
 import os
 import time
+import urllib.parse
 import urllib.request
 
 SAMPLES = {
@@ -21,11 +22,12 @@ SAMPLES = {
     "stripe": {"id": "evt_test_123", "type": "invoice.paid", "data": {"object": {"amount_paid": 4900}}},
     "shopify": {"id": 820982911946154508, "email": "jon@example.com", "total_price": "49.00"},
     "slack": {"type": "event_callback", "event": {"type": "app_mention", "text": "<@U123> deploy status?"}},
+    "twilio": {"MessageSid": "SM123", "From": "+15551230000", "To": "+15559870000", "Body": "STATUS"},
     "generic": {"event": "user.signup", "user": {"id": 7, "plan": "pro"}},
 }
 
 
-def sign(source: str, body: bytes, secret: str) -> dict[str, str]:
+def sign(source: str, body: bytes, secret: str, url: str = "") -> dict[str, str]:
     def digest(payload: bytes) -> str:
         return hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
 
@@ -41,6 +43,11 @@ def sign(source: str, body: bytes, secret: str) -> dict[str, str]:
         ts = str(int(time.time()))
         signature = digest(b"v0:" + ts.encode() + b":" + body)
         return {"X-Slack-Request-Timestamp": ts, "X-Slack-Signature": f"v0={signature}"}
+    if source == "twilio":
+        params = urllib.parse.parse_qsl(body.decode())
+        payload = (url + "".join(key + value for key, value in sorted(params))).encode()
+        raw = hmac.new(secret.encode(), payload, hashlib.sha1).digest()
+        return {"X-Twilio-Signature": base64.b64encode(raw).decode()}
     return {"X-Signature": digest(body)}
 
 
@@ -52,9 +59,16 @@ def main() -> None:
     args = parser.parse_args()
 
     secret = args.secret or os.environ.get(f"HOOKSCOPE_SECRET_{args.source.upper()}", "dev-secret")
-    body = json.dumps(SAMPLES[args.source]).encode()
-    headers = {"Content-Type": "application/json", **sign(args.source, body, secret)}
-    request = urllib.request.Request(f"{args.url}/hooks/{args.source}", data=body, headers=headers)
+    target = f"{args.url}/hooks/{args.source}"
+    if args.source == "twilio":
+        # Twilio posts form-encoded parameters and signs them together with the URL.
+        body = urllib.parse.urlencode(SAMPLES[args.source]).encode()
+        content_type = "application/x-www-form-urlencoded"
+    else:
+        body = json.dumps(SAMPLES[args.source]).encode()
+        content_type = "application/json"
+    headers = {"Content-Type": content_type, **sign(args.source, body, secret, target)}
+    request = urllib.request.Request(target, data=body, headers=headers)
     try:
         with urllib.request.urlopen(request) as response:
             print(response.status, response.read().decode())

@@ -101,7 +101,7 @@ def create_app(
 
         body = await request.body()
         headers = dict(request.headers)
-        result = verify(source, body, headers, secrets.get(source))
+        result = verify(source, body, headers, secrets.get(source), url=str(request.url))
         event_id = store.add(
             source=source,
             headers=headers,

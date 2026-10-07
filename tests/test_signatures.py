@@ -1,10 +1,18 @@
 import base64
 import hashlib
 import hmac
+from urllib.parse import urlencode
 
 import pytest
 
-from hookscope.signatures import verify, verify_github, verify_shopify, verify_slack, verify_stripe
+from hookscope.signatures import (
+    verify,
+    verify_github,
+    verify_shopify,
+    verify_slack,
+    verify_stripe,
+    verify_twilio,
+)
 
 SECRET = "s3cret"
 BODY = b'{"hello": "world"}'
@@ -120,3 +128,58 @@ def test_slack_malformed_headers(headers):
 
 def test_slack_missing_signature():
     assert verify_slack(BODY, {"X-Slack-Request-Timestamp": "1700000000"}, SECRET).status == "unsigned"
+
+
+# Test vectors from Twilio's request validation docs and libraries (auth token "12345").
+TWILIO_TOKEN = "12345"
+TWILIO_URL = "https://mycompany.com/myapp.php?foo=1&bar=2"
+TWILIO_PARAMS = [
+    ("CallSid", "CA1234567890ABCDE"),
+    ("Caller", "+12349013030"),
+    ("Digits", "1234"),
+    ("From", "+12349013030"),
+    ("To", "+18005551212"),
+]
+TWILIO_FORM = urlencode(TWILIO_PARAMS).encode()
+TWILIO_JSON = b'{"property": "value", "boolean": true}'
+TWILIO_JSON_URL = TWILIO_URL + "&bodySHA256=0a1ff7634d9ab3b95db5c9a2dfe9416e41502b283a80c7cf19632632f96e6620"
+
+
+def test_twilio_form_params_valid():
+    headers = {"X-Twilio-Signature": "0/KCTR6DLpKmkAf8muzZqo1nDgQ="}
+    assert verify_twilio(TWILIO_FORM, headers, TWILIO_TOKEN, TWILIO_URL).status == "valid"
+
+
+def test_twilio_param_order_does_not_matter():
+    reordered = urlencode(list(reversed(TWILIO_PARAMS))).encode()
+    headers = {"X-Twilio-Signature": "0/KCTR6DLpKmkAf8muzZqo1nDgQ="}
+    assert verify_twilio(reordered, headers, TWILIO_TOKEN, TWILIO_URL).status == "valid"
+
+
+def test_twilio_json_body_sha256_valid():
+    headers = {"X-Twilio-Signature": "a9nBmqA0ju/hNViExpshrM61xv4="}
+    assert verify_twilio(TWILIO_JSON, headers, TWILIO_TOKEN, TWILIO_JSON_URL).status == "valid"
+
+
+def test_twilio_json_body_tampered():
+    headers = {"X-Twilio-Signature": "a9nBmqA0ju/hNViExpshrM61xv4="}
+    result = verify_twilio(b'{"property": "evil"}', headers, TWILIO_TOKEN, TWILIO_JSON_URL)
+    assert result.status == "invalid"
+    assert "bodySHA256" in result.reason
+
+
+def test_twilio_wrong_url_is_rejected():
+    headers = {"X-Twilio-Signature": "0/KCTR6DLpKmkAf8muzZqo1nDgQ="}
+    result = verify_twilio(TWILIO_FORM, headers, TWILIO_TOKEN, "http://localhost:8000/hooks/twilio")
+    assert result.status == "invalid"
+
+
+def test_twilio_missing_header_and_url():
+    assert verify_twilio(TWILIO_FORM, {}, TWILIO_TOKEN, TWILIO_URL).status == "unsigned"
+    headers = {"X-Twilio-Signature": "0/KCTR6DLpKmkAf8muzZqo1nDgQ="}
+    assert verify_twilio(TWILIO_FORM, headers, TWILIO_TOKEN).status == "invalid"
+
+
+def test_verify_passes_url_to_twilio():
+    headers = {"X-Twilio-Signature": "0/KCTR6DLpKmkAf8muzZqo1nDgQ="}
+    assert verify("twilio", TWILIO_FORM, headers, TWILIO_TOKEN, url=TWILIO_URL).status == "valid"

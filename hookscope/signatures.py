@@ -15,6 +15,7 @@ import hmac
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from urllib.parse import parse_qs, parse_qsl, urlparse
 
 STRIPE_TOLERANCE_SECONDS = 300
 SLACK_TOLERANCE_SECONDS = 300
@@ -140,16 +141,49 @@ def verify_shopify(body: bytes, headers: Mapping[str, str], secret: str) -> Veri
     return VerificationResult("valid")
 
 
-VERIFIERS: dict[str, Callable[[bytes, Mapping[str, str], str], VerificationResult]] = {
+def verify_twilio(body: bytes, headers: Mapping[str, str], secret: str, url: str = "") -> VerificationResult:
+    """Twilio: ``X-Twilio-Signature: <base64 HMAC-SHA1>`` of the full request URL plus the
+    sorted form parameters. JSON requests instead carry ``bodySHA256`` in the URL query,
+    so only the URL is signed and the body is checked against that hash."""
+    received = _get_header(headers, "X-Twilio-Signature")
+    if not received:
+        return VerificationResult("unsigned", "missing X-Twilio-Signature header")
+    if not url:
+        return VerificationResult("invalid", "request URL unknown")
+
+    body_hash = parse_qs(urlparse(url).query).get("bodySHA256")
+    if body_hash:
+        if not hmac.compare_digest(hashlib.sha256(body).hexdigest(), body_hash[0]):
+            return VerificationResult("invalid", "body does not match bodySHA256")
+        payload = url
+    else:
+        params = parse_qsl(body.decode("utf-8", errors="replace"), keep_blank_values=True)
+        payload = url + "".join(key + value for key, value in sorted(params))
+
+    digest = hmac.new(secret.encode(), payload.encode(), hashlib.sha1).digest()
+    if not hmac.compare_digest(base64.b64encode(digest).decode(), received):
+        return VerificationResult("invalid", "signature mismatch (check the public URL Twilio calls)")
+    return VerificationResult("valid")
+
+
+# Providers whose signature covers the request URL, so the verifier needs it.
+URL_SIGNED = {"twilio"}
+
+VERIFIERS: dict[str, Callable[..., VerificationResult]] = {
     "github": verify_github,
     "stripe": verify_stripe,
     "shopify": verify_shopify,
     "slack": verify_slack,
+    "twilio": verify_twilio,
     "generic": verify_generic,
 }
 
 
-def verify(source: str, body: bytes, headers: Mapping[str, str], secret: str | None) -> VerificationResult:
+def verify(
+    source: str, body: bytes, headers: Mapping[str, str], secret: str | None, url: str = ""
+) -> VerificationResult:
     if not secret:
         return VerificationResult("no_secret", f"no secret configured for '{source}'")
+    if source in URL_SIGNED:
+        return VERIFIERS[source](body, headers, secret, url)
     return VERIFIERS[source](body, headers, secret)

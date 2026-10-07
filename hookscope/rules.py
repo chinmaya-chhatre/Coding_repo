@@ -154,11 +154,17 @@ class ForwardRule:
         }
 
 
+# Providers that send the event type in a header rather than in the body.
+EVENT_TYPE_HEADERS = {"github": "x-github-event", "shopify": "x-shopify-topic"}
+
+
 def event_type(event: dict) -> str | None:
-    """Provider-specific event type: GitHub's ``X-GitHub-Event`` header, else the body's ``type``."""
-    if event["source"] == "github":
+    """Provider-specific event type: a header for GitHub (``X-GitHub-Event``) and Shopify
+    (``X-Shopify-Topic``), else the JSON body's ``type``."""
+    header = EVENT_TYPE_HEADERS.get(event["source"])
+    if header:
         for key, value in event["headers"].items():
-            if key.lower() == "x-github-event":
+            if key.lower() == header:
                 return value
         return None
     try:

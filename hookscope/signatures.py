@@ -8,6 +8,8 @@ still be stored and inspected.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import hmac
 import time
@@ -95,9 +97,25 @@ def verify_generic(body: bytes, headers: Mapping[str, str], secret: str) -> Veri
     return VerificationResult("valid")
 
 
+def verify_shopify(body: bytes, headers: Mapping[str, str], secret: str) -> VerificationResult:
+    """Shopify: ``X-Shopify-Hmac-Sha256: <base64 hmac of body>``."""
+    received = _get_header(headers, "X-Shopify-Hmac-Sha256")
+    if not received:
+        return VerificationResult("unsigned", "missing X-Shopify-Hmac-Sha256 header")
+    try:
+        received_digest = base64.b64decode(received, validate=True)
+    except (binascii.Error, ValueError):
+        return VerificationResult("invalid", "expected a base64-encoded digest")
+    expected = hmac.new(secret.encode(), body, hashlib.sha256).digest()
+    if not hmac.compare_digest(expected, received_digest):
+        return VerificationResult("invalid", "signature mismatch")
+    return VerificationResult("valid")
+
+
 VERIFIERS: dict[str, Callable[[bytes, Mapping[str, str], str], VerificationResult]] = {
     "github": verify_github,
     "stripe": verify_stripe,
+    "shopify": verify_shopify,
     "generic": verify_generic,
 }
 

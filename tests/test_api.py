@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import hmac
 
@@ -72,3 +73,16 @@ def test_dashboard_has_replay_form_per_event(client):
     assert f'data-event-id="{first}"' in html
     assert f'data-event-id="{second}"' in html
     assert "/replay" in html
+
+
+def test_shopify_webhook_is_verified(tmp_path):
+    store = EventStore(str(tmp_path / "shopify.db"))
+    client = TestClient(create_app(store=store, secrets={"shopify": SECRET}))
+    body = b'{"id": 1, "total_price": "49.00"}'
+    sig = base64.b64encode(hmac.new(SECRET.encode(), body, hashlib.sha256).digest()).decode()
+
+    ok = client.post("/hooks/shopify", content=body, headers={"X-Shopify-Hmac-Sha256": sig})
+    bad = client.post("/hooks/shopify", content=body, headers={"X-Shopify-Hmac-Sha256": "AAAA"})
+
+    assert ok.status_code == 202 and ok.json()["verification"] == "valid"
+    assert bad.status_code == 401 and bad.json()["verification"] == "invalid"

@@ -13,10 +13,11 @@ a replayed request. HookScope makes each of those visible.
 
 ## Features
 
-- `POST /hooks/{source}` receiver for `github`, `stripe` and `generic` HMAC-SHA256
+- `POST /hooks/{source}` receiver for `github`, `stripe`, `shopify` and `generic` HMAC-SHA256
 - Signature verification with constant-time comparison
   - GitHub `X-Hub-Signature-256`
   - Stripe `Stripe-Signature` including timestamp tolerance (replay protection)
+  - Shopify `X-Shopify-Hmac-Sha256` (base64 digest)
   - Generic `X-Signature`
 - Rejected deliveries return `401` **but are still stored**, so you can see why they failed
 - Web dashboard with per-source filtering, pretty-printed JSON and one-click replay
@@ -92,8 +93,8 @@ file and point `HOOKSCOPE_RULES` at it:
 ```
 
 - `source` and `event_types` are optional; leaving one out matches everything.
-- The event type is GitHub's `X-GitHub-Event` header, or the JSON body's `type` field
-  for Stripe and generic sources.
+- The event type is GitHub's `X-GitHub-Event` header, Shopify's `X-Shopify-Topic` header
+  (e.g. `orders/create`), or the JSON body's `type` field for Stripe and generic sources.
 - Only accepted events (`valid` or `no_secret`) are forwarded; rejected deliveries never are.
 - Forwarding runs after HookScope has answered the provider, so a slow target never
   delays the delivery. The receive response lists the matched rules in `forwarded_to`.
@@ -236,6 +237,7 @@ docker run -p 8000:8000 -e HOOKSCOPE_SECRET_GITHUB=dev-secret -v hookscope-data:
 | `HOOKSCOPE_DB` | SQLite file path | `hookscope.db` |
 | `HOOKSCOPE_SECRET_GITHUB` | GitHub webhook secret | unset |
 | `HOOKSCOPE_SECRET_STRIPE` | Stripe endpoint signing secret (`whsec_...`) | unset |
+| `HOOKSCOPE_SECRET_SHOPIFY` | Shopify app client secret (signs webhooks) | unset |
 | `HOOKSCOPE_SECRET_GENERIC` | Shared secret for `X-Signature` | unset |
 | `HOOKSCOPE_RULES` | Path to a JSON file of forwarding rules | unset (no forwarding) |
 

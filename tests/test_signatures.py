@@ -1,7 +1,8 @@
+import base64
 import hashlib
 import hmac
 
-from hookscope.signatures import verify, verify_github, verify_stripe
+from hookscope.signatures import verify, verify_github, verify_shopify, verify_stripe
 
 SECRET = "s3cret"
 BODY = b'{"hello": "world"}'
@@ -50,3 +51,34 @@ def test_stripe_malformed_header():
 
 def test_no_secret_configured():
     assert verify("github", BODY, {}, None).status == "no_secret"
+
+
+def _shopify_sig(payload: bytes) -> str:
+    return base64.b64encode(hmac.new(SECRET.encode(), payload, hashlib.sha256).digest()).decode()
+
+
+def test_shopify_valid():
+    headers = {"X-Shopify-Hmac-Sha256": _shopify_sig(BODY)}
+    assert verify_shopify(BODY, headers, SECRET).status == "valid"
+
+
+def test_shopify_tampered_body():
+    headers = {"X-Shopify-Hmac-Sha256": _shopify_sig(BODY)}
+    assert verify_shopify(b'{"hello": "evil"}', headers, SECRET).status == "invalid"
+
+
+def test_shopify_hex_digest_is_rejected():
+    # Shopify sends base64; a hex digest (as GitHub uses) must not be accepted.
+    headers = {"X-Shopify-Hmac-Sha256": _hex(BODY)}
+    result = verify_shopify(BODY, headers, SECRET)
+    assert result.status == "invalid"
+
+
+def test_shopify_malformed_base64():
+    result = verify_shopify(BODY, {"X-Shopify-Hmac-Sha256": "not base64!"}, SECRET)
+    assert result.status == "invalid"
+    assert "base64" in result.reason
+
+
+def test_shopify_missing_header():
+    assert verify_shopify(BODY, {}, SECRET).status == "unsigned"

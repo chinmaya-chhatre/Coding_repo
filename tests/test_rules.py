@@ -131,6 +131,8 @@ def test_rules_endpoint_lists_configured_rules(tmp_path):
         ({"source": "github", "headers": {"x-github-event": "push"}, "body": "{}"}, "push"),
         ({"source": "github", "headers": {}, "body": '{"type": "x"}'}, None),
         ({"source": "stripe", "headers": {}, "body": '{"type": "invoice.paid"}'}, "invoice.paid"),
+        ({"source": "shopify", "headers": {"X-Shopify-Topic": "orders/create"}, "body": ""}, "orders/create"),
+        ({"source": "shopify", "headers": {}, "body": '{"type": "x"}'}, None),
         ({"source": "generic", "headers": {}, "body": "not json"}, None),
         ({"source": "generic", "headers": {}, "body": "[1, 2]"}, None),
         ({"source": "generic", "headers": {}, "body": '{"type": 5}'}, None),

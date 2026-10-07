@@ -8,6 +8,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import hmac
 import json
@@ -18,6 +19,7 @@ import urllib.request
 SAMPLES = {
     "github": {"action": "opened", "pull_request": {"number": 42, "title": "Add retry logic"}},
     "stripe": {"id": "evt_test_123", "type": "invoice.paid", "data": {"object": {"amount_paid": 4900}}},
+    "shopify": {"id": 820982911946154508, "email": "jon@example.com", "total_price": "49.00"},
     "generic": {"event": "user.signup", "user": {"id": 7, "plan": "pro"}},
 }
 
@@ -31,6 +33,9 @@ def sign(source: str, body: bytes, secret: str) -> dict[str, str]:
     if source == "stripe":
         ts = str(int(time.time()))
         return {"Stripe-Signature": f"t={ts},v1={digest(ts.encode() + b'.' + body)}"}
+    if source == "shopify":
+        raw = hmac.new(secret.encode(), body, hashlib.sha256).digest()
+        return {"X-Shopify-Hmac-Sha256": base64.b64encode(raw).decode(), "X-Shopify-Topic": "orders/create"}
     return {"X-Signature": digest(body)}
 
 

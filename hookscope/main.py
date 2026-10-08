@@ -10,11 +10,11 @@ from pathlib import Path
 
 import httpx
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from . import __version__
+from . import __version__, metrics
 from .replay import InvalidTargetError, ReplayResult, replay_event
 from .rules import ForwardRule, deliver, event_type, forward_event, is_dead_letter, load_rules, matching_rules
 from .signatures import VERIFIERS, verify
@@ -129,6 +129,11 @@ def create_app(
             status_code=status_code,
             background=background,
         )
+
+    @app.get("/metrics")
+    def prometheus_metrics() -> Response:
+        body = metrics.render(store, sources=VERIFIERS, dead_letters=len(dead_letters()))
+        return Response(body, media_type=metrics.CONTENT_TYPE)
 
     @app.get("/api/events")
     def list_events(

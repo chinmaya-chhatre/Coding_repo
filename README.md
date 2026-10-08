@@ -28,6 +28,8 @@ a replayed request. HookScope makes each of those visible.
   - Generic `X-Signature`
 - Rejected deliveries return `401` **but are still stored**, so you can see why they failed
 - Web dashboard with per-source tabs, text search, date-range and signature-status filters, pretty-printed JSON and one-click replay
+- Prometheus metrics at `GET /metrics`: deliveries by source and verification result,
+  forward attempts by rule and outcome, and the dead-letter count
 - JSON API: `GET /api/events`, `GET /api/events/{id}`. `/api/events` filters with `source`,
   `verification`, `q` (case-insensitive text in the body or headers) and `since` / `until`
   (ISO dates or datetimes, UTC unless an offset is given; a date-only `until` covers the whole day)
@@ -233,6 +235,30 @@ The dashboard has the same preview under each event: pick a rule to preview its 
 rule's mapping switches to an ad-hoc preview, so you can start from a rule and try changes
 before putting them in the rules file.
 
+### Metrics
+
+`GET /metrics` serves Prometheus text format, with no extra dependencies:
+
+| Metric | Type | Labels |
+|---|---|---|
+| `hookscope_deliveries_total` | counter | `source`, `verification` (`valid`, `invalid`, `unsigned`, `no_secret`) |
+| `hookscope_forward_attempts_total` | counter | `rule`, `outcome` (`success` = 2xx, else `failure`) |
+| `hookscope_dead_letters` | gauge | none |
+| `hookscope_info` | gauge | `version` |
+
+Counts are read from SQLite on each scrape, so they survive restarts. Every known
+source/status pair is exported even at 0, so rates and alerts work from the start:
+
+```yaml
+scrape_configs:
+  - job_name: hookscope
+    static_configs:
+      - targets: ["localhost:8000"]
+```
+
+For example, alert when signatures start failing:
+`sum by (source) (rate(hookscope_deliveries_total{verification="invalid"}[5m])) > 0`.
+
 ### Docker
 
 ```bash
@@ -270,6 +296,7 @@ provider ──POST /hooks/{source}──▶ FastAPI ──▶ signatures.verify
 
 - `hookscope/signatures.py` — one pure function per provider, easy to unit test
 - `hookscope/store.py` — thin SQLite wrapper
+- `hookscope/metrics.py` — Prometheus text exposition built from stored counts
 - `hookscope/replay.py` — re-sends a stored event with its original headers
 - `hookscope/rules.py` — forwarding rules: parsing, matching and sending
 - `hookscope/slack.py` — turns an event into a Slack message for `"format": "slack"` rules
@@ -298,7 +325,7 @@ ruff check . && pytest -q
 - [x] Dead-letter view: forwards that exhausted their retries, with one-click re-send
 - [x] More providers: Shopify, Slack (with URL verification), Twilio, Svix / Standard Webhooks
 - [x] Search and date-range filters (dashboard form and `GET /api/events` parameters)
-- [ ] Prometheus `/metrics` (deliveries by source and verification status)
+- [x] Prometheus `/metrics` (deliveries by source and verification status, forwards, dead letters)
 - [ ] Retention policy / auto-purge
 - [ ] Deploy guide (Fly.io / Render) with a public demo
 

@@ -133,6 +133,23 @@ class EventStore:
             )
             return int(cur.lastrowid)
 
+    def delivery_counts(self) -> list[tuple[str, str, int]]:
+        """Stored deliveries per (source, verification)."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT source, verification, COUNT(*) FROM events GROUP BY source, verification"
+            ).fetchall()
+        return [(row[0], row[1], row[2]) for row in rows]
+
+    def forward_counts(self) -> list[tuple[str, str, int]]:
+        """Forward attempts per (rule, outcome), where outcome is "success" for a 2xx."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT rule, CASE WHEN status_code BETWEEN 200 AND 299 THEN 'success' "
+                "ELSE 'failure' END AS outcome, COUNT(*) FROM forwards GROUP BY rule, outcome"
+            ).fetchall()
+        return [(row[0], row[1], row[2]) for row in rows]
+
     def list_forwards(self, event_id: int) -> list[dict]:
         with self._connect() as conn:
             rows = conn.execute(

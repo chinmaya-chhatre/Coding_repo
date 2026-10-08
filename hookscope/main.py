@@ -131,8 +131,25 @@ def create_app(
         )
 
     @app.get("/api/events")
-    def list_events(limit: int = 50, source: str | None = None) -> list[dict]:
-        return store.list(limit=min(limit, 500), source=source)
+    def list_events(
+        limit: int = 50,
+        source: str | None = None,
+        q: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        verification: str | None = None,
+    ) -> list[dict]:
+        try:
+            return store.list(
+                limit=min(limit, 500),
+                source=source,
+                q=q,
+                since=since,
+                until=until,
+                verification=verification,
+            )
+        except ValueError as exc:
+            raise HTTPException(422, f"since/until must be ISO dates or datetimes: {exc}") from exc
 
     @app.get("/api/events/{event_id}")
     def get_event(event_id: int) -> dict:

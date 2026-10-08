@@ -6,7 +6,7 @@ import json
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
@@ -72,12 +72,42 @@ class EventStore:
             row = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
         return _to_dict(row) if row else None
 
-    def list(self, limit: int = 50, source: str | None = None) -> list[dict]:
-        query = "SELECT * FROM events"
+    def list(
+        self,
+        limit: int = 50,
+        source: str | None = None,
+        q: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        verification: str | None = None,
+    ) -> list[dict]:
+        """Newest events first, optionally filtered.
+
+        ``q`` is a case-insensitive substring match on the body and headers. ``since`` and
+        ``until`` are ISO dates or datetimes (UTC unless an offset is given); a date-only
+        ``until`` includes that whole day. Raises ``ValueError`` for a malformed bound.
+        """
+        conditions: list[str] = []
         params: list = []
         if source:
-            query += " WHERE source = ?"
+            conditions.append("source = ?")
             params.append(source)
+        if verification:
+            conditions.append("verification = ?")
+            params.append(verification)
+        if q:
+            pattern = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            conditions.append("(body LIKE ? ESCAPE '\\' OR headers LIKE ? ESCAPE '\\')")
+            params += [pattern, pattern]
+        if since:
+            conditions.append("received_at >= ?")
+            params.append(time_bound(since))
+        if until:
+            conditions.append("received_at < ?")
+            params.append(time_bound(until, end=True))
+        query = "SELECT * FROM events"
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
         query += " ORDER BY id DESC LIMIT ?"
         params.append(limit)
         with self._connect() as conn:
@@ -143,6 +173,28 @@ def _migrate(conn: sqlite3.Connection) -> None:
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def time_bound(value: str, end: bool = False) -> str:
+    """Normalise an ISO date/datetime to the UTC format used for ``received_at``.
+
+    With ``end=True`` the result is an exclusive upper bound: a date-only value moves to
+    the start of the next day so the whole day is included.
+    """
+    value = value.strip()
+    if len(value) == 10:
+        day = date.fromisoformat(value)
+        if end:
+            day += timedelta(days=1)
+        moment = datetime(day.year, day.month, day.day, tzinfo=UTC)
+    else:
+        moment = datetime.fromisoformat(value)
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=UTC)
+        if end:
+            # received_at has second precision, so "until 10:00:00" should include 10:00:00.
+            moment += timedelta(seconds=1)
+    return moment.astimezone(UTC).isoformat(timespec="seconds")
 
 
 def _to_dict(row: sqlite3.Row) -> dict:

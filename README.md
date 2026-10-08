@@ -13,7 +13,7 @@ a replayed request. HookScope makes each of those visible.
 
 ## Features
 
-- `POST /hooks/{source}` receiver for `github`, `stripe`, `shopify`, `slack`, `twilio` and `generic` signed webhooks
+- `POST /hooks/{source}` receiver for `github`, `stripe`, `shopify`, `slack`, `twilio`, `svix` and `generic` signed webhooks
 - Signature verification with constant-time comparison
   - GitHub `X-Hub-Signature-256`
   - Stripe `Stripe-Signature` including timestamp tolerance (replay protection)
@@ -22,6 +22,9 @@ a replayed request. HookScope makes each of those visible.
     `url_verification` handshake is answered automatically
   - Twilio `X-Twilio-Signature` (HMAC-SHA1 of the request URL plus sorted form parameters,
     or the `bodySHA256` query parameter for JSON bodies)
+  - Svix / [Standard Webhooks](https://www.standardwebhooks.com/) `svix-signature` or
+    `webhook-signature` (`v1,<base64>` of `id.timestamp.body`, timestamp tolerance, multiple
+    signatures for secret rotation)
   - Generic `X-Signature`
 - Rejected deliveries return `401` **but are still stored**, so you can see why they failed
 - Web dashboard with per-source filtering, pretty-printed JSON and one-click replay
@@ -99,7 +102,7 @@ file and point `HOOKSCOPE_RULES` at it:
 - `source` and `event_types` are optional; leaving one out matches everything.
 - The event type is GitHub's `X-GitHub-Event` header, Shopify's `X-Shopify-Topic` header
   (e.g. `orders/create`), the inner `event.type` of Slack `event_callback` payloads
-  (e.g. `app_mention`), or the JSON body's `type` field for Stripe and generic sources.
+  (e.g. `app_mention`), or the JSON body's `type` field for Stripe, Svix and generic sources.
 - Only accepted events (`valid` or `no_secret`) are forwarded; rejected deliveries never are.
 - Forwarding runs after HookScope has answered the provider, so a slow target never
   delays the delivery. The receive response lists the matched rules in `forwarded_to`.
@@ -245,6 +248,7 @@ docker run -p 8000:8000 -e HOOKSCOPE_SECRET_GITHUB=dev-secret -v hookscope-data:
 | `HOOKSCOPE_SECRET_SHOPIFY` | Shopify app client secret (signs webhooks) | unset |
 | `HOOKSCOPE_SECRET_SLACK` | Slack app signing secret | unset |
 | `HOOKSCOPE_SECRET_TWILIO` | Twilio account auth token | unset |
+| `HOOKSCOPE_SECRET_SVIX` | Svix / Standard Webhooks endpoint secret (`whsec_...`) | unset |
 | `HOOKSCOPE_SECRET_GENERIC` | Shared secret for `X-Signature` | unset |
 | `HOOKSCOPE_RULES` | Path to a JSON file of forwarding rules | unset (no forwarding) |
 
@@ -290,8 +294,7 @@ ruff check . && pytest -q
 - [x] Transforms follow-up: JSONPath filter expressions (`[?(...)]`)
 - [x] Retry failed forwards with exponential backoff (per-rule `retry` policy, `Retry-After`)
 - [x] Dead-letter view: forwards that exhausted their retries, with one-click re-send
-- [x] More providers: Shopify, Slack (with URL verification), Twilio
-- [ ] More providers: Svix
+- [x] More providers: Shopify, Slack (with URL verification), Twilio, Svix / Standard Webhooks
 - [ ] Search and date-range filters in the dashboard
 - [ ] Prometheus `/metrics` (deliveries by source and verification status)
 - [ ] Retention policy / auto-purge

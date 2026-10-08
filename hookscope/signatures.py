@@ -19,6 +19,7 @@ from urllib.parse import parse_qs, parse_qsl, urlparse
 
 STRIPE_TOLERANCE_SECONDS = 300
 SLACK_TOLERANCE_SECONDS = 300
+SVIX_TOLERANCE_SECONDS = 300
 
 
 @dataclass(frozen=True)
@@ -141,6 +142,52 @@ def verify_shopify(body: bytes, headers: Mapping[str, str], secret: str) -> Veri
     return VerificationResult("valid")
 
 
+def _svix_key(secret: str) -> bytes | None:
+    """Decode a ``whsec_<base64>`` signing secret (the prefix is optional)."""
+    try:
+        return base64.b64decode(secret.removeprefix("whsec_"), validate=True)
+    except (binascii.Error, ValueError):
+        return None
+
+
+def verify_svix(
+    body: bytes,
+    headers: Mapping[str, str],
+    secret: str,
+    now: float | None = None,
+) -> VerificationResult:
+    """Svix / Standard Webhooks: ``svix-signature: v1,<base64 HMAC-SHA256 of "id.timestamp.body">``.
+
+    The ``webhook-id`` / ``webhook-timestamp`` / ``webhook-signature`` header names from the
+    Standard Webhooks spec are accepted too. The header may list several space-separated
+    signatures (e.g. during secret rotation); any matching ``v1`` one is enough.
+    """
+    prefix = "svix" if _get_header(headers, "svix-signature") else "webhook"
+    received = _get_header(headers, f"{prefix}-signature")
+    msg_id = _get_header(headers, f"{prefix}-id")
+    timestamp = _get_header(headers, f"{prefix}-timestamp")
+    if not received:
+        return VerificationResult("unsigned", "missing svix-signature header")
+    if not msg_id or not timestamp or not timestamp.isdigit():
+        return VerificationResult("invalid", f"missing or malformed {prefix}-id / {prefix}-timestamp header")
+
+    key = _svix_key(secret)
+    if key is None:
+        return VerificationResult("invalid", "configured secret is not a valid whsec_ key")
+
+    now = time.time() if now is None else now
+    if abs(now - int(timestamp)) > SVIX_TOLERANCE_SECONDS:
+        return VerificationResult("invalid", "timestamp outside tolerance (possible replay)")
+
+    signed = msg_id.encode() + b"." + timestamp.encode() + b"." + body
+    expected = base64.b64encode(hmac.new(key, signed, hashlib.sha256).digest()).decode()
+    parts = (part.partition(",") for part in received.split())
+    candidates = [sig for version, _, sig in parts if version == "v1"]
+    if not any(hmac.compare_digest(expected, sig) for sig in candidates):
+        return VerificationResult("invalid", "signature mismatch")
+    return VerificationResult("valid")
+
+
 def verify_twilio(body: bytes, headers: Mapping[str, str], secret: str, url: str = "") -> VerificationResult:
     """Twilio: ``X-Twilio-Signature: <base64 HMAC-SHA1>`` of the full request URL plus the
     sorted form parameters. JSON requests instead carry ``bodySHA256`` in the URL query,
@@ -175,6 +222,7 @@ VERIFIERS: dict[str, Callable[..., VerificationResult]] = {
     "shopify": verify_shopify,
     "slack": verify_slack,
     "twilio": verify_twilio,
+    "svix": verify_svix,
     "generic": verify_generic,
 }
 

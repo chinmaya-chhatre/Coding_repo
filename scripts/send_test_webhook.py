@@ -23,6 +23,7 @@ SAMPLES = {
     "shopify": {"id": 820982911946154508, "email": "jon@example.com", "total_price": "49.00"},
     "slack": {"type": "event_callback", "event": {"type": "app_mention", "text": "<@U123> deploy status?"}},
     "twilio": {"MessageSid": "SM123", "From": "+15551230000", "To": "+15559870000", "Body": "STATUS"},
+    "svix": {"type": "invoice.paid", "data": {"id": "inv_42", "amount": 4900}},
     "generic": {"event": "user.signup", "user": {"id": 7, "plan": "pro"}},
 }
 
@@ -48,6 +49,12 @@ def sign(source: str, body: bytes, secret: str, url: str = "") -> dict[str, str]
         payload = (url + "".join(key + value for key, value in sorted(params))).encode()
         raw = hmac.new(secret.encode(), payload, hashlib.sha1).digest()
         return {"X-Twilio-Signature": base64.b64encode(raw).decode()}
+    if source == "svix":
+        key = base64.b64decode(secret.removeprefix("whsec_"))
+        msg_id, ts = f"msg_{int(time.time() * 1000)}", str(int(time.time()))
+        raw = hmac.new(key, f"{msg_id}.{ts}.".encode() + body, hashlib.sha256).digest()
+        signature = base64.b64encode(raw).decode()
+        return {"svix-id": msg_id, "svix-timestamp": ts, "svix-signature": f"v1,{signature}"}
     return {"X-Signature": digest(body)}
 
 
@@ -58,7 +65,9 @@ def main() -> None:
     parser.add_argument("--secret", help="defaults to HOOKSCOPE_SECRET_<SOURCE> or 'dev-secret'")
     args = parser.parse_args()
 
-    secret = args.secret or os.environ.get(f"HOOKSCOPE_SECRET_{args.source.upper()}", "dev-secret")
+    # Svix secrets are base64 keys with a whsec_ prefix; "dev-secret" is not valid base64.
+    default = "whsec_ZGV2LXNlY3JldC1kZXYtc2VjcmV0" if args.source == "svix" else "dev-secret"
+    secret = args.secret or os.environ.get(f"HOOKSCOPE_SECRET_{args.source.upper()}", default)
     target = f"{args.url}/hooks/{args.source}"
     if args.source == "twilio":
         # Twilio posts form-encoded parameters and signs them together with the URL.

@@ -11,6 +11,7 @@ from hookscope.signatures import (
     verify_shopify,
     verify_slack,
     verify_stripe,
+    verify_svix,
     verify_twilio,
 )
 
@@ -183,3 +184,50 @@ def test_twilio_missing_header_and_url():
 def test_verify_passes_url_to_twilio():
     headers = {"X-Twilio-Signature": "0/KCTR6DLpKmkAf8muzZqo1nDgQ="}
     assert verify("twilio", TWILIO_FORM, headers, TWILIO_TOKEN, url=TWILIO_URL).status == "valid"
+
+
+# Example from the Svix docs ("Verifying webhooks manually").
+SVIX_SECRET = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"
+SVIX_BODY = b'{"test": 2432232314}'
+SVIX_SIG = "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE="
+SVIX_TS = 1614265330
+
+
+def _svix_headers(signature: str = SVIX_SIG, prefix: str = "svix") -> dict:
+    return {
+        f"{prefix}-id": "msg_p5jXN8AQM9LWM0D4loKWxJek",
+        f"{prefix}-timestamp": str(SVIX_TS),
+        f"{prefix}-signature": signature,
+    }
+
+
+def test_svix_docs_example_is_valid():
+    assert verify_svix(SVIX_BODY, _svix_headers(), SVIX_SECRET, now=SVIX_TS + 10).status == "valid"
+
+
+def test_svix_standard_webhooks_header_names():
+    headers = _svix_headers(prefix="webhook")
+    assert verify_svix(SVIX_BODY, headers, SVIX_SECRET, now=SVIX_TS).status == "valid"
+
+
+def test_svix_accepts_any_listed_signature():
+    headers = _svix_headers(f"v1,bm90IGl0 v2,ignored {SVIX_SIG}")
+    assert verify_svix(SVIX_BODY, headers, SVIX_SECRET, now=SVIX_TS).status == "valid"
+
+
+def test_svix_tampered_body():
+    result = verify_svix(b'{"test": 1}', _svix_headers(), SVIX_SECRET, now=SVIX_TS)
+    assert result.status == "invalid"
+
+
+def test_svix_rejects_old_timestamp():
+    result = verify_svix(SVIX_BODY, _svix_headers(), SVIX_SECRET, now=SVIX_TS + 3600)
+    assert result.status == "invalid"
+    assert "tolerance" in result.reason
+
+
+def test_svix_bad_secret_and_headers():
+    assert verify_svix(SVIX_BODY, _svix_headers(), "whsec_not*base64", now=SVIX_TS).status == "invalid"
+    headers = {"svix-signature": SVIX_SIG}
+    assert verify_svix(SVIX_BODY, headers, SVIX_SECRET, now=SVIX_TS).status == "invalid"
+    assert verify_svix(SVIX_BODY, {}, SVIX_SECRET).status == "unsigned"

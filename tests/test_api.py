@@ -141,3 +141,21 @@ def test_twilio_webhook_is_verified_against_request_url(tmp_path):
 
     assert ok.status_code == 202 and ok.json()["verification"] == "valid"
     assert bad.status_code == 401
+
+
+def test_svix_webhook_is_verified(tmp_path):
+    key = b"0123456789abcdef0123456789abcdef"
+    secret = "whsec_" + base64.b64encode(key).decode()
+    store = EventStore(str(tmp_path / "svix.db"))
+    client = TestClient(create_app(store=store, secrets={"svix": secret}))
+    body = b'{"type": "invoice.paid", "data": {"id": "inv_1"}}'
+    ts = str(int(time.time()))
+    digest = hmac.new(key, b"msg_1." + ts.encode() + b"." + body, hashlib.sha256).digest()
+    sig = base64.b64encode(digest).decode()
+    headers = {"svix-id": "msg_1", "svix-timestamp": ts, "svix-signature": f"v1,{sig}"}
+
+    ok = client.post("/hooks/svix", content=body, headers=headers)
+    bad = client.post("/hooks/svix", content=body + b" ", headers=headers)
+
+    assert ok.status_code == 202 and ok.json()["verification"] == "valid"
+    assert bad.status_code == 401

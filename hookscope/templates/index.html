@@ -16,8 +16,16 @@
     main { max-width:960px; margin:0 auto; padding:24px 16px; }
     h1 { margin:0 0 4px; font-size:24px; }
     .muted { color:var(--muted); }
-    nav a { margin-right:12px; color:var(--text); }
+    nav { display:flex; flex-wrap:wrap; gap:4px 12px; }
+    nav a { color:var(--text); }
     nav a.active { font-weight:600; }
+    .filters { display:flex; flex-wrap:wrap; gap:8px; align-items:end; margin:12px 0; }
+    .filters label { display:flex; flex-direction:column; font-size:13px; color:var(--muted); gap:2px; }
+    .filters label.grow { flex:1 1 200px; }
+    .filters input, .filters select, .filters button { padding:6px 8px; font:inherit; color:var(--text);
+                     background:var(--card); border:1px solid var(--border); border-radius:6px; min-width:0; }
+    .filters button { cursor:pointer; }
+    .filter-error { color:var(--bad); }
     details { background:var(--card); border:1px solid var(--border); border-radius:8px; margin:8px 0; }
     summary { padding:10px 14px; cursor:pointer; display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
     .badge { font-size:12px; padding:2px 8px; border-radius:999px; border:1px solid currentColor; }
@@ -67,9 +75,26 @@
   <p class="muted">Send webhooks to <code>/hooks/&lt;source&gt;</code>. Secrets configured for:
     {{ configured | join(", ") if configured else "none" }}</p>
   <nav>
-    <a href="/" class="{{ 'active' if not active }}">all</a>
-    {% for s in sources %}<a href="/?source={{ s }}" class="{{ 'active' if active == s }}">{{ s }}</a>{% endfor %}
+    <a href="/?{{ filters | urlencode }}" class="{{ 'active' if not active }}">all</a>
+    {% for s in sources %}<a href="/?{{ dict(filters, source=s) | urlencode }}" class="{{ 'active' if active == s }}">{{ s }}</a>{% endfor %}
   </nav>
+  <form class="filters" method="get" action="/" role="search">
+    {% if active %}<input type="hidden" name="source" value="{{ active }}">{% endif %}
+    <label class="grow">Search body &amp; headers
+      <input type="search" name="q" value="{{ filters.q or '' }}" placeholder="e.g. invoice.paid or order id">
+    </label>
+    <label>From <input type="date" name="since" value="{{ filters.since or '' }}"></label>
+    <label>To <input type="date" name="until" value="{{ filters.until or '' }}"></label>
+    <label>Signature
+      <select name="verification">
+        <option value="">any</option>
+        {% for v in verifications %}<option value="{{ v }}" {{ 'selected' if filters.verification == v }}>{{ v }}</option>{% endfor %}
+      </select>
+    </label>
+    <button type="submit">Filter</button>
+    {% if filters %}<a href="/{{ '?source=' ~ active if active }}">clear</a>{% endif %}
+  </form>
+  {% if filter_error %}<p class="filter-error" role="alert">{{ filter_error }}</p>{% endif %}
   {% if dead_letters %}
   <section class="dead" aria-label="Dead letters">
     <h2>Dead letters ({{ dead_letters | length }})</h2>
@@ -91,7 +116,9 @@
     </table>
   </section>
   {% endif %}
-  {% if not events %}
+  {% if not events and (filters or active) and not filter_error %}
+    <p class="muted">No events match these filters.</p>
+  {% elif not events and not filter_error %}
     <p class="muted">No events yet. Try <code>python scripts/send_test_webhook.py</code>.</p>
   {% endif %}
   {% for e in events %}

@@ -95,3 +95,31 @@ def test_api_filters_and_rejects_bad_dates(store):
 
     bad = client.get("/api/events", params={"since": "last tuesday"})
     assert bad.status_code == 422
+
+
+def test_dashboard_filters_events_and_keeps_form_values(store):
+    client = TestClient(create_app(store=store, secrets={}))
+    _add(store, "2026-10-05T12:00:00+00:00", body='{"order": "A-1001"}', source="stripe")
+    _add(store, "2026-10-06T12:00:00+00:00", body='{"order": "B-2002"}', source="stripe")
+
+    html = client.get("/", params={"q": "A-1001", "until": "2026-10-05", "source": "stripe"}).text
+
+    assert "A-1001" in html and "B-2002" not in html
+    assert 'value="A-1001"' in html and 'value="2026-10-05"' in html
+    # Source links keep the active filters so switching tabs does not drop them.
+    assert "q=A-1001" in html and "source=github" in html
+
+
+def test_dashboard_empty_fields_mean_no_filter(store):
+    client = TestClient(create_app(store=store, secrets={}))
+    _add(store, "2026-10-05T12:00:00+00:00", body='{"order": "A-1001"}')
+    html = client.get("/", params={"q": "", "since": "", "until": "", "verification": ""}).text
+    assert "A-1001" in html
+    assert "clear</a>" not in html
+
+
+def test_dashboard_reports_bad_dates_and_no_matches(store):
+    client = TestClient(create_app(store=store, secrets={}))
+    _add(store, "2026-10-05T12:00:00+00:00")
+    assert "Dates must look like" in client.get("/", params={"since": "05/10/2026"}).text
+    assert "No events match these filters" in client.get("/", params={"q": "nothing-here"}).text

@@ -27,7 +27,7 @@ a replayed request. HookScope makes each of those visible.
     signatures for secret rotation)
   - Generic `X-Signature`
 - Rejected deliveries return `401` **but are still stored**, so you can see why they failed
-- Web dashboard with per-source filtering, pretty-printed JSON and one-click replay
+- Web dashboard with per-source tabs, text search, date-range and signature-status filters, pretty-printed JSON and one-click replay
 - JSON API: `GET /api/events`, `GET /api/events/{id}`. `/api/events` filters with `source`,
   `verification`, `q` (case-insensitive text in the body or headers) and `since` / `until`
   (ISO dates or datetimes, UTC unless an offset is given; a date-only `until` covers the whole day)
@@ -297,7 +297,7 @@ ruff check . && pytest -q
 - [x] Retry failed forwards with exponential backoff (per-rule `retry` policy, `Retry-After`)
 - [x] Dead-letter view: forwards that exhausted their retries, with one-click re-send
 - [x] More providers: Shopify, Slack (with URL verification), Twilio, Svix / Standard Webhooks
-- [ ] Search and date-range filters in the dashboard (API filters done; dashboard form next)
+- [x] Search and date-range filters (dashboard form and `GET /api/events` parameters)
 - [ ] Prometheus `/metrics` (deliveries by source and verification status)
 - [ ] Retention policy / auto-purge
 - [ ] Deploy guide (Fly.io / Render) with a public demo

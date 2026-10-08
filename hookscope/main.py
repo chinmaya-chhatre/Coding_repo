@@ -237,8 +237,23 @@ def create_app(
         }
 
     @app.get("/", response_class=HTMLResponse)
-    def dashboard(request: Request, source: str | None = None) -> HTMLResponse:
-        events = store.list(limit=100, source=source)
+    def dashboard(
+        request: Request,
+        source: str | None = None,
+        q: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        verification: str | None = None,
+    ) -> HTMLResponse:
+        # Empty form fields arrive as "", which means "no filter".
+        filters = {"q": q or None, "since": since or None, "until": until or None,
+                   "verification": verification or None}
+        filter_error = ""
+        try:
+            events = store.list(limit=100, source=source, **filters)
+        except ValueError:
+            filter_error = "Dates must look like 2026-10-08 (or a full ISO datetime)."
+            events = []
         forwards = store.forwards_by_event([event["id"] for event in events])
         for event in events:
             event["pretty_body"] = _pretty(event["body"])
@@ -251,6 +266,9 @@ def create_app(
                 "events": events,
                 "sources": sorted(VERIFIERS),
                 "active": source,
+                "filters": {k: v for k, v in filters.items() if v},
+                "filter_error": filter_error,
+                "verifications": ["valid", "invalid", "unsigned", "no_secret"],
                 "configured": sorted(secrets),
                 "dead_letters": dead_letters(),
                 # Rule mappings let the preview form start from a rule's transform and tweak it.

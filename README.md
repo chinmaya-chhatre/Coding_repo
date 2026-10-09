@@ -267,6 +267,28 @@ docker build -t hookscope .
 docker run -p 8000:8000 -e HOOKSCOPE_SECRET_GITHUB=dev-secret -v hookscope-data:/data hookscope
 ```
 
+The image runs as a non-root user, listens on `$PORT` (default 8000) and trusts
+`X-Forwarded-*` headers, so it works behind a load balancer as-is.
+
+## Deploy
+
+### Fly.io
+
+`fly.toml` is ready to use: a 1 GB volume for the SQLite database, a `/healthz` health
+check, HTTPS only, machines that stop when idle, and a 7-day / 5,000-event retention
+policy suitable for a public demo.
+
+```bash
+fly launch --copy-config --no-deploy --name <your-app-name>   # or edit `app` in fly.toml
+fly volumes create hookscope_data --size 1 --region iad
+fly secrets set HOOKSCOPE_SECRET_GITHUB=... HOOKSCOPE_SECRET_STRIPE=...
+fly deploy
+```
+
+Then point a provider at `https://<your-app-name>.fly.dev/hooks/<source>`. Secrets are
+set with `fly secrets` so they never live in the repo; use one machine, since SQLite on a
+volume is not shared between machines.
+
 ## Configuration
 
 | Variable | Purpose | Default |
@@ -340,7 +362,7 @@ ruff check . && pytest -q
 - [x] Search and date-range filters (dashboard form and `GET /api/events` parameters)
 - [x] Prometheus `/metrics` (deliveries by source and verification status, forwards, dead letters)
 - [x] Retention policy: age and count limits purged automatically, plus `POST /api/purge`
-- [ ] Deploy guide (Fly.io / Render) with a public demo
+- [ ] Deploy guide (Fly.io / Render) with a public demo (Fly.io config and guide done; Render next)
 
 ## License
 

@@ -29,6 +29,7 @@ a replayed request. HookScope makes each of those visible.
 - Rejected deliveries return `401` **but are still stored**, so you can see why they failed
 - Web dashboard with per-source tabs, text search, date-range and signature-status filters, pretty-printed JSON and one-click replay
 - Retention: automatic purging by age and/or event count, plus an on-demand `POST /api/purge`
+- One-step deploys: Dockerfile with a non-root entrypoint, `fly.toml` and a Render `render.yaml`
 - Prometheus metrics at `GET /metrics`: deliveries by source and verification result,
   forward attempts by rule and outcome, and the dead-letter count
 - JSON API: `GET /api/events`, `GET /api/events/{id}`. `/api/events` filters with `source`,
@@ -267,8 +268,10 @@ docker build -t hookscope .
 docker run -p 8000:8000 -e HOOKSCOPE_SECRET_GITHUB=dev-secret -v hookscope-data:/data hookscope
 ```
 
-The image runs as a non-root user, listens on `$PORT` (default 8000) and trusts
-`X-Forwarded-*` headers, so it works behind a load balancer as-is.
+The app runs as a non-root user, listens on `$PORT` (default 8000) and trusts
+`X-Forwarded-*` headers, so it works behind a load balancer as-is. Hosted volumes are
+usually mounted owned by root, so the entrypoint (`deploy/entrypoint.sh`) hands the
+database directory to the `hookscope` user before dropping privileges.
 
 ## Deploy
 
@@ -288,6 +291,16 @@ fly deploy
 Then point a provider at `https://<your-app-name>.fly.dev/hooks/<source>`. Secrets are
 set with `fly secrets` so they never live in the repo; use one machine, since SQLite on a
 volume is not shared between machines.
+
+### Render
+
+`render.yaml` is a Render Blueprint: in the dashboard choose **New → Blueprint** and pick
+this repository. It builds the Docker image, mounts a 1 GB disk at `/data`, checks
+`/healthz`, and applies the same demo retention policy. Render prompts for
+`HOOKSCOPE_SECRET_GITHUB` and `HOOKSCOPE_SECRET_STRIPE` (they are `sync: false`, so no
+values live in the repo); add other `HOOKSCOPE_SECRET_*` variables under **Environment**.
+Persistent disks need a paid instance; on the free plan remove the `disk` block and data
+resets on every deploy.
 
 ## Configuration
 
@@ -362,7 +375,8 @@ ruff check . && pytest -q
 - [x] Search and date-range filters (dashboard form and `GET /api/events` parameters)
 - [x] Prometheus `/metrics` (deliveries by source and verification status, forwards, dead letters)
 - [x] Retention policy: age and count limits purged automatically, plus `POST /api/purge`
-- [ ] Deploy guide (Fly.io / Render) with a public demo (Fly.io config and guide done; Render next)
+- [x] Deploy guide and configs for Fly.io and Render
+- [ ] Public demo deployment (needs a Fly.io or Render account; follow the Deploy section)
 
 ## License
 

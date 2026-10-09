@@ -1,0 +1,26 @@
+# Render Blueprint for HookScope: New > Blueprint, then pick this repository.
+services:
+  - type: web
+    name: hookscope
+    runtime: docker
+    # Persistent disks need a paid instance; on the free plan remove `disk` and data
+    # is lost on each deploy.
+    plan: starter
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: HOOKSCOPE_DB
+        value: /data/hookscope.db
+      - key: HOOKSCOPE_RETENTION_DAYS
+        value: "7"
+      - key: HOOKSCOPE_MAX_EVENTS
+        value: "5000"
+      # Secrets are entered in the Render dashboard, never committed.
+      - key: HOOKSCOPE_SECRET_GITHUB
+        sync: false
+      - key: HOOKSCOPE_SECRET_STRIPE
+        sync: false
+    disk:
+      name: hookscope-data
+      mountPath: /data
+      sizeGB: 1

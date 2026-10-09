@@ -28,6 +28,7 @@ a replayed request. HookScope makes each of those visible.
   - Generic `X-Signature`
 - Rejected deliveries return `401` **but are still stored**, so you can see why they failed
 - Web dashboard with per-source tabs, text search, date-range and signature-status filters, pretty-printed JSON and one-click replay
+- Retention: automatic purging by age and/or event count, plus an on-demand `POST /api/purge`
 - Prometheus metrics at `GET /metrics`: deliveries by source and verification result,
   forward attempts by rule and outcome, and the dead-letter count
 - JSON API: `GET /api/events`, `GET /api/events/{id}`. `/api/events` filters with `source`,
@@ -290,6 +291,10 @@ interval, and removes expired events together with their forward attempts. A bur
 briefly exceed `HOOKSCOPE_MAX_EVENTS` until the next purge; set the interval to `0` to
 enforce the limits after every delivery. Invalid values stop the app at startup.
 
+To clean up on demand, `POST /api/purge` applies the configured policy immediately, or
+takes one-off rules: `{"older_than": "2026-10-01", "keep_last": 1000}` (either is
+optional; an event goes if either rule says so). It returns `{"removed": n, "remaining": m}`.
+
 Twilio signs the exact public URL it calls, so behind a reverse proxy or TLS terminator
 run uvicorn with `--proxy-headers --forwarded-allow-ips='*'` (or your proxy's IP) so the
 scheme and host HookScope sees match what Twilio signed.
@@ -334,7 +339,7 @@ ruff check . && pytest -q
 - [x] More providers: Shopify, Slack (with URL verification), Twilio, Svix / Standard Webhooks
 - [x] Search and date-range filters (dashboard form and `GET /api/events` parameters)
 - [x] Prometheus `/metrics` (deliveries by source and verification status, forwards, dead letters)
-- [ ] Retention policy / auto-purge (age and count limits purge automatically; manual purge endpoint next)
+- [x] Retention policy: age and count limits purged automatically, plus `POST /api/purge`
 - [ ] Deploy guide (Fly.io / Render) with a public demo
 
 ## License

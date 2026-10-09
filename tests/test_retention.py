@@ -145,3 +145,32 @@ def test_max_events_keeps_the_event_just_received(store):
     client = TestClient(create_app(store=store, secrets={}, retention=RetentionPolicy(max_events=1)))
     new_id = client.post("/hooks/generic", content=b"{}").json()["id"]
     assert _ids(store) == [new_id]
+
+
+def test_purge_endpoint_with_explicit_rules(store):
+    _add(store, "2020-01-01T00:00:00+00:00")
+    keep = _add(store, "2026-10-01T00:00:00+00:00")
+    client = TestClient(create_app(store=store, secrets={}, retention=RetentionPolicy()))
+
+    resp = client.post("/api/purge", json={"older_than": "2025-01-01"})
+
+    assert resp.status_code == 200
+    assert resp.json() == {"removed": 1, "remaining": 1}
+    assert _ids(store) == [keep]
+
+
+def test_purge_endpoint_applies_configured_policy_immediately(store):
+    for day in range(1, 5):
+        _add(store, f"2026-10-0{day}T00:00:00+00:00")
+    policy = RetentionPolicy(max_events=1, interval_seconds=3600)
+    client = TestClient(create_app(store=store, secrets={}, retention=policy))
+    # Ignores the purge interval: a manual purge always runs.
+    assert client.post("/api/purge").json() == {"removed": 3, "remaining": 1}
+
+
+def test_purge_endpoint_errors(store):
+    client = TestClient(create_app(store=store, secrets={}, retention=RetentionPolicy()))
+    assert client.post("/api/purge").status_code == 400
+    assert client.post("/api/purge", json={}).status_code == 400
+    assert client.post("/api/purge", json={"older_than": "someday"}).status_code == 422
+    assert client.post("/api/purge", json={"keep_last": -1}).status_code == 422

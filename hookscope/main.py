@@ -32,6 +32,11 @@ class ReplayRequest(BaseModel):
     target_url: str
 
 
+class PurgeRequest(BaseModel):
+    older_than: str | None = None
+    keep_last: int | None = None
+
+
 class TransformPreviewRequest(BaseModel):
     rule: str | None = None
     transform: dict | None = None
@@ -203,6 +208,24 @@ def create_app(
     @app.get("/api/rules")
     def list_rules() -> list[dict]:
         return [rule.to_dict() for rule in rules]
+
+    @app.post("/api/purge")
+    def purge(payload: PurgeRequest | None = None) -> dict:
+        """Delete events now: by the given rules, or by the configured retention policy."""
+        if payload and (payload.older_than or payload.keep_last is not None):
+            try:
+                removed = store.purge(older_than=payload.older_than, keep_last=payload.keep_last)
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from exc
+        elif purger.policy.enabled:
+            removed = purger.run()
+        else:
+            raise HTTPException(
+                400,
+                "no retention policy configured; pass older_than and/or keep_last, or set "
+                "HOOKSCOPE_RETENTION_DAYS / HOOKSCOPE_MAX_EVENTS",
+            )
+        return {"removed": removed, "remaining": store.count()}
 
     @app.post("/api/events/{event_id}/replay")
     def replay(event_id: int, payload: ReplayRequest) -> JSONResponse:

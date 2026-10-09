@@ -158,6 +158,10 @@ class EventStore:
             conn.execute(f"DELETE FROM forwards WHERE event_id IN ({doomed})", params)
             return conn.execute(f"DELETE FROM events WHERE {where}", params).rowcount
 
+    def count(self) -> int:
+        with self._connect() as conn:
+            return conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+
     def delivery_counts(self) -> list[tuple[str, str, int]]:
         """Stored deliveries per (source, verification)."""
         with self._connect() as conn:

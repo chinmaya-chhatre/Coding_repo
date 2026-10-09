@@ -1,7 +1,11 @@
 import sqlite3
+from datetime import UTC, datetime
 
 import pytest
+from fastapi.testclient import TestClient
 
+from hookscope.main import create_app
+from hookscope.retention import Purger, RetentionPolicy
 from hookscope.store import EventStore
 
 
@@ -63,3 +67,81 @@ def test_purge_rejects_negative_keep_last_and_bad_dates(store):
         store.purge(keep_last=-1)
     with pytest.raises(ValueError):
         store.purge(older_than="last week")
+
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def test_policy_from_env():
+    policy = RetentionPolicy.from_env({"HOOKSCOPE_RETENTION_DAYS": "7", "HOOKSCOPE_MAX_EVENTS": "500"})
+    assert policy == RetentionPolicy(max_age_days=7.0, max_events=500)
+    assert RetentionPolicy.from_env({}).enabled is False
+    assert RetentionPolicy.from_env({"HOOKSCOPE_PURGE_INTERVAL_SECONDS": "0"}).interval_seconds == 0
+
+
+@pytest.mark.parametrize(
+    "env",
+    [
+        {"HOOKSCOPE_RETENTION_DAYS": "a week"},
+        {"HOOKSCOPE_RETENTION_DAYS": "0"},
+        {"HOOKSCOPE_MAX_EVENTS": "0"},
+        {"HOOKSCOPE_MAX_EVENTS": "1.5"},
+        {"HOOKSCOPE_PURGE_INTERVAL_SECONDS": "-1"},
+    ],
+)
+def test_policy_rejects_bad_settings(env):
+    with pytest.raises(ValueError, match="HOOKSCOPE_RETENTION_DAYS"):
+        RetentionPolicy.from_env(env)
+
+
+def test_cutoff_is_max_age_before_now():
+    now = datetime(2026, 10, 9, 12, 0, tzinfo=UTC)
+    assert RetentionPolicy(max_age_days=1.5).cutoff(now) == "2026-10-08T00:00:00+00:00"
+    assert RetentionPolicy(max_events=5).cutoff(now) is None
+
+
+def test_purger_is_throttled(store):
+    clock = FakeClock()
+    purger = Purger(store, RetentionPolicy(max_events=1, interval_seconds=60), clock)
+    _add(store, "2026-10-01T00:00:00+00:00")
+    _add(store, "2026-10-02T00:00:00+00:00")
+    assert purger.maybe_run() == 1
+
+    _add(store, "2026-10-03T00:00:00+00:00")
+    clock.now += 30
+    assert purger.maybe_run() == 0  # too soon
+    clock.now += 31
+    assert purger.maybe_run() == 1
+    assert len(_ids(store)) == 1
+
+
+def test_disabled_policy_never_deletes(store):
+    _add(store, "2000-01-01T00:00:00+00:00")
+    assert Purger(store, RetentionPolicy(), FakeClock()).maybe_run() == 0
+    assert len(_ids(store)) == 1
+
+
+def test_receiving_a_webhook_applies_retention(store):
+    expired = _add(store, "2000-01-01T00:00:00+00:00")
+    client = TestClient(create_app(store=store, secrets={}, retention=RetentionPolicy(max_age_days=30)))
+
+    resp = client.post("/hooks/generic", content=b'{"fresh": true}')
+
+    assert resp.status_code == 202
+    ids = _ids(store)
+    assert expired not in ids
+    assert ids == [resp.json()["id"]]
+
+
+def test_max_events_keeps_the_event_just_received(store):
+    for day in range(1, 4):
+        _add(store, f"2026-10-0{day}T00:00:00+00:00")
+    client = TestClient(create_app(store=store, secrets={}, retention=RetentionPolicy(max_events=1)))
+    new_id = client.post("/hooks/generic", content=b"{}").json()["id"]
+    assert _ids(store) == [new_id]

@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from . import __version__, metrics
 from .replay import InvalidTargetError, ReplayResult, replay_event
+from .retention import Purger, RetentionPolicy
 from .rules import ForwardRule, deliver, event_type, forward_event, is_dead_letter, load_rules, matching_rules
 from .signatures import VERIFIERS, verify
 from .store import EventStore
@@ -53,11 +54,13 @@ def create_app(
     rules: list[ForwardRule] | None = None,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
+    retention: RetentionPolicy | None = None,
 ) -> FastAPI:
     store = store or EventStore(os.environ.get("HOOKSCOPE_DB", "hookscope.db"))
     secrets = load_secrets_from_env() if secrets is None else secrets
     http_client = http_client or httpx.Client(timeout=REPLAY_TIMEOUT_SECONDS)
     rules = load_rules(os.environ.get("HOOKSCOPE_RULES")) if rules is None else rules
+    purger = Purger(store, RetentionPolicy.from_env() if retention is None else retention, clock)
 
     def run_forwards(event_id: int, rule_list: list[ForwardRule]) -> None:
         event = store.get(event_id)
@@ -117,6 +120,8 @@ def create_app(
         to_forward = matching_rules(store.get(event_id), rules)
         if to_forward:
             background.add_task(run_forwards, event_id, to_forward)
+        # Runs after forwarding, and keeps at least the newest event, so this one survives.
+        background.add_task(purger.maybe_run)
         # Rejected events are still stored so they can be debugged in the UI.
         status_code = 401 if result.rejected else 202
         return JSONResponse(

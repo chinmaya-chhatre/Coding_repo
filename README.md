@@ -326,7 +326,7 @@ ruff check . && pytest -q
 - [x] More providers: Shopify, Slack (with URL verification), Twilio, Svix / Standard Webhooks
 - [x] Search and date-range filters (dashboard form and `GET /api/events` parameters)
 - [x] Prometheus `/metrics` (deliveries by source and verification status, forwards, dead letters)
-- [ ] Retention policy / auto-purge
+- [ ] Retention policy / auto-purge (storage `purge()` done; configuration and automatic runs next)
 - [ ] Deploy guide (Fly.io / Render) with a public demo
 
 ## License

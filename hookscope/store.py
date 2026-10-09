@@ -133,6 +133,31 @@ class EventStore:
             )
             return int(cur.lastrowid)
 
+    def purge(self, older_than: str | None = None, keep_last: int | None = None) -> int:
+        """Delete old events and their forward attempts; returns how many events were removed.
+
+        ``older_than`` (an ISO date/datetime, see ``time_bound``) removes events received
+        before it; ``keep_last`` keeps only the newest N events. Both may be combined, and an
+        event goes if either rule says so. With neither, nothing is deleted.
+        """
+        conditions: list[str] = []
+        params: list = []
+        if older_than:
+            conditions.append("received_at < ?")
+            params.append(time_bound(older_than))
+        if keep_last is not None:
+            if keep_last < 0:
+                raise ValueError("keep_last must be >= 0")
+            conditions.append("id NOT IN (SELECT id FROM events ORDER BY id DESC LIMIT ?)")
+            params.append(keep_last)
+        if not conditions:
+            return 0
+        where = " OR ".join(conditions)
+        with self._connect() as conn:
+            doomed = f"SELECT id FROM events WHERE {where}"
+            conn.execute(f"DELETE FROM forwards WHERE event_id IN ({doomed})", params)
+            return conn.execute(f"DELETE FROM events WHERE {where}", params).rowcount
+
     def delivery_counts(self) -> list[tuple[str, str, int]]:
         """Stored deliveries per (source, verification)."""
         with self._connect() as conn:

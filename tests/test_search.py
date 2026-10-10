@@ -123,3 +123,36 @@ def test_dashboard_reports_bad_dates_and_no_matches(store):
     _add(store, "2026-10-05T12:00:00+00:00")
     assert "Dates must look like" in client.get("/", params={"since": "05/10/2026"}).text
     assert "No events match these filters" in client.get("/", params={"q": "nothing-here"}).text
+
+
+def _plan(store: EventStore, query: str, params: tuple) -> str:
+    with sqlite3.connect(store.path) as conn:
+        return " ".join(row[3] for row in conn.execute("EXPLAIN QUERY PLAN " + query, params))
+
+
+def test_date_and_source_filters_use_indexes(store):
+    date_plan = _plan(
+        store,
+        "SELECT * FROM events WHERE received_at >= ? AND received_at < ? ORDER BY id DESC LIMIT 100",
+        ("2026-10-01", "2026-10-02"),
+    )
+    source_plan = _plan(
+        store, "SELECT * FROM events WHERE source = ? ORDER BY id DESC LIMIT 100", ("stripe",)
+    )
+    assert "USING INDEX events_received_at" in date_plan
+    assert "USING INDEX events_source_id" in source_plan
+
+
+def test_existing_databases_gain_the_indexes(tmp_path):
+    path = str(tmp_path / "old.db")
+    with sqlite3.connect(path) as conn:
+        # The events table as created by earlier versions, without the indexes.
+        conn.execute(
+            "CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, source TEXT NOT NULL, "
+            "received_at TEXT NOT NULL, headers TEXT NOT NULL, body TEXT NOT NULL, "
+            "verification TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '')"
+        )
+    EventStore(path)
+    with sqlite3.connect(path) as conn:
+        names = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+    assert {"events_received_at", "events_source_id"} <= names

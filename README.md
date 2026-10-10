@@ -343,7 +343,7 @@ provider ──POST /hooks/{source}──▶ FastAPI ──▶ signatures.verify
 ```
 
 - `hookscope/signatures.py` — one pure function per provider, easy to unit test
-- `hookscope/store.py` — thin SQLite wrapper
+- `hookscope/store.py` — thin SQLite wrapper, indexed by receive time and source
 - `hookscope/metrics.py` — Prometheus text exposition built from stored counts
 - `hookscope/replay.py` — re-sends a stored event with its original headers
 - `hookscope/rules.py` — forwarding rules: parsing, matching and sending

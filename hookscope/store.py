@@ -31,6 +31,9 @@ CREATE TABLE IF NOT EXISTS forwards (
     attempt       INTEGER NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS forwards_event_id ON forwards(event_id);
+-- Date-range filters and age-based purging; per-source tabs list newest first.
+CREATE INDEX IF NOT EXISTS events_received_at ON events(received_at);
+CREATE INDEX IF NOT EXISTS events_source_id ON events(source, id);
 """
 
 

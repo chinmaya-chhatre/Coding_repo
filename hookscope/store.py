@@ -82,7 +82,7 @@ class EventStore:
                 (
                     source,
                     _now(),
-                    json.dumps(headers),
+                    json.dumps(redact_headers(headers)),
                     body,
                     verification,
                     reason,
@@ -242,6 +242,18 @@ def _migrate(conn: sqlite3.Connection) -> None:
     event_columns = {row["name"] for row in conn.execute("PRAGMA table_info(events)")}
     if "body_base64" not in event_columns:
         conn.execute("ALTER TABLE events ADD COLUMN body_base64 TEXT")
+
+
+# Headers that carry the sender's credentials for *some* service. HookScope authenticates
+# providers by signature, never by these, so keeping them only creates a place for a token
+# to leak: into the dashboard, backups, and replays sent to other hosts.
+SENSITIVE_HEADERS = frozenset({"authorization", "proxy-authorization", "cookie", "set-cookie"})
+REDACTED = "[redacted]"
+
+
+def redact_headers(headers: dict[str, str]) -> dict[str, str]:
+    """A copy of ``headers`` with credential values replaced by ``[redacted]``."""
+    return {k: REDACTED if k.lower() in SENSITIVE_HEADERS else v for k, v in headers.items()}
 
 
 def body_bytes(event: dict) -> bytes:

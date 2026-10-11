@@ -20,6 +20,8 @@ from .store import body_bytes
 
 # Headers that describe the original connection rather than the payload.
 DROPPED_HEADERS = {"host", "content-length", "connection", "transfer-encoding", "accept-encoding"}
+# Never re-sent to another host, even from events stored before these were redacted.
+DROPPED_HEADERS |= {"authorization", "proxy-authorization", "cookie", "set-cookie"}
 REPLAY_HEADER = "X-HookScope-Replay"
 MAX_RESPONSE_CHARS = 2000
 

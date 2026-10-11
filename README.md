@@ -356,6 +356,11 @@ are authenticated by their signatures) and so does `/healthz` (load balancer che
 - Comparison is constant-time; unauthenticated requests get `401` with a `WWW-Authenticate`
   challenge. Use a long random password and serve over HTTPS (Fly.io and Render do).
 - Webhook secrets (`HOOKSCOPE_SECRET_*`) are separate: they only verify provider signatures.
+- Credential headers (`Authorization`, `Proxy-Authorization`, `Cookie`, `Set-Cookie`) on incoming
+  webhooks are stored as `[redacted]` and never replayed or forwarded, so a token a sender
+  includes cannot leak through the dashboard, a backup or another host. Providers are
+  verified by signature, which is kept. Events stored by earlier versions keep their old
+  headers until purged (`POST /api/purge`), though replay and forwarding already skip them.
 - `/hooks/*` has to stay open to the internet, so request bodies are capped at
   `HOOKSCOPE_MAX_BODY_BYTES` (default 5 MiB). Oversized bodies get `413` and are neither
   buffered nor stored, even when sent chunked without a `Content-Length`. Put a rate limit

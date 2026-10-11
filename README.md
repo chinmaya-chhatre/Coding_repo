@@ -28,6 +28,7 @@ a replayed request. HookScope makes each of those visible.
   - Generic `X-Signature`
 - Rejected deliveries return `401` **but are still stored**, so you can see why they failed
 - Web dashboard with per-source tabs, text search, date-range and signature-status filters, pretty-printed JSON and one-click replay
+- Optional password protection for the dashboard, API and metrics (providers stay signature-only)
 - Retention: automatic purging by age and/or event count, plus an on-demand `POST /api/purge`
 - One-step deploys: Dockerfile with a non-root entrypoint, `fly.toml` and a Render `render.yaml`
 - Prometheus metrics at `GET /metrics`: deliveries by source and verification result,
@@ -88,8 +89,8 @@ The body and original headers (including the signature) are forwarded, plus an
 response reports the target's status code, latency and the start of its response
 body; `502` means the target could not be reached at all.
 
-> HookScope sends replays to whatever URL you give it, so only expose the API on
-> networks you trust.
+> HookScope sends replays to whatever URL you give it, so never expose the API publicly
+> without a password (see [Security](#security)).
 
 ### Forwarding rules
 
@@ -259,6 +260,10 @@ scrape_configs:
   - job_name: hookscope
     static_configs:
       - targets: ["localhost:8000"]
+    # Only needed when HOOKSCOPE_ADMIN_PASSWORD is set (any username works):
+    basic_auth:
+      username: prometheus
+      password: <HOOKSCOPE_ADMIN_PASSWORD>
 ```
 
 For example, alert when signatures start failing:
@@ -287,7 +292,7 @@ policy suitable for a public demo.
 ```bash
 fly launch --copy-config --no-deploy --name <your-app-name>   # or edit `app` in fly.toml
 fly volumes create hookscope_data --size 1 --region iad
-fly secrets set HOOKSCOPE_SECRET_GITHUB=... HOOKSCOPE_SECRET_STRIPE=...
+fly secrets set HOOKSCOPE_ADMIN_PASSWORD=... HOOKSCOPE_SECRET_GITHUB=... HOOKSCOPE_SECRET_STRIPE=...
 fly deploy
 ```
 
@@ -300,7 +305,7 @@ volume is not shared between machines.
 `render.yaml` is a Render Blueprint: in the dashboard choose **New → Blueprint** and pick
 this repository. It builds the Docker image, mounts a 1 GB disk at `/data`, checks
 `/healthz`, and applies the same demo retention policy. Render prompts for
-`HOOKSCOPE_SECRET_GITHUB` and `HOOKSCOPE_SECRET_STRIPE` (they are `sync: false`, so no
+`HOOKSCOPE_ADMIN_PASSWORD`, `HOOKSCOPE_SECRET_GITHUB` and `HOOKSCOPE_SECRET_STRIPE` (they are `sync: false`, so no
 values live in the repo); add other `HOOKSCOPE_SECRET_*` variables under **Environment**.
 Persistent disks need a paid instance; on the free plan remove the `disk` block and data
 resets on every deploy.
@@ -315,6 +320,7 @@ resets on every deploy.
 | `HOOKSCOPE_SECRET_SHOPIFY` | Shopify app client secret (signs webhooks) | unset |
 | `HOOKSCOPE_SECRET_SLACK` | Slack app signing secret | unset |
 | `HOOKSCOPE_SECRET_TWILIO` | Twilio account auth token | unset |
+| `HOOKSCOPE_ADMIN_PASSWORD` | Password for the dashboard, JSON API and `/metrics` | unset (open) |
 | `HOOKSCOPE_SECRET_SVIX` | Svix / Standard Webhooks endpoint secret (`whsec_...`) | unset |
 | `HOOKSCOPE_SECRET_GENERIC` | Shared secret for `X-Signature` | unset |
 | `HOOKSCOPE_RULES` | Path to a JSON file of forwarding rules | unset (no forwarding) |
@@ -337,6 +343,19 @@ Twilio signs the exact public URL it calls, so behind a reverse proxy or TLS ter
 run uvicorn with `--proxy-headers --forwarded-allow-ips='*'` (or your proxy's IP) so the
 scheme and host HookScope sees match what Twilio signed.
 
+## Security
+
+By default everything is open, which is fine on localhost. Before exposing HookScope to
+a network, set `HOOKSCOPE_ADMIN_PASSWORD`: the dashboard, `/api/*` (including replay and
+purge) and `/metrics` then require credentials, while `/hooks/*` stays public (providers
+are authenticated by their signatures) and so does `/healthz` (load balancer checks).
+
+- Browsers get a login prompt (HTTP Basic: any username, the password above).
+- Scripts can send `Authorization: Bearer <password>` or `curl -u anyone:<password>`.
+- Comparison is constant-time; unauthenticated requests get `401` with a `WWW-Authenticate`
+  challenge. Use a long random password and serve over HTTPS (Fly.io and Render do).
+- Webhook secrets (`HOOKSCOPE_SECRET_*`) are separate: they only verify provider signatures.
+
 ## Architecture
 
 ```
@@ -347,6 +366,7 @@ provider ──POST /hooks/{source}──▶ FastAPI ──▶ signatures.verify
 
 - `hookscope/signatures.py` — one pure function per provider, easy to unit test
 - `hookscope/store.py` — thin SQLite wrapper, indexed by receive time and source
+- `hookscope/auth.py` — optional Basic/Bearer password for everything except `/hooks/*` and `/healthz`
 - `hookscope/metrics.py` — Prometheus text exposition built from stored counts
 - `hookscope/replay.py` — re-sends a stored event with its original headers
 - `hookscope/rules.py` — forwarding rules: parsing, matching and sending
@@ -379,7 +399,8 @@ ruff check . && pytest -q
 - [x] Prometheus `/metrics` (deliveries by source and verification status, forwards, dead letters)
 - [x] Retention policy: age and count limits purged automatically, plus `POST /api/purge`
 - [x] Deploy guide and configs for Fly.io and Render
-- [ ] Public demo deployment (needs a Fly.io or Render account; follow the Deploy section)
+- [x] Optional password for the dashboard, API and metrics (needed before a public deployment)
+- [ ] Public demo deployment (needs a Fly.io or Render account; set `HOOKSCOPE_ADMIN_PASSWORD`, then follow the Deploy section)
 
 ## License
 

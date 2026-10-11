@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from . import __version__, metrics
+from . import __version__, auth, metrics
 from .replay import InvalidTargetError, ReplayResult, replay_event
 from .retention import Purger, RetentionPolicy
 from .rules import ForwardRule, deliver, event_type, forward_event, is_dead_letter, load_rules, matching_rules
@@ -60,6 +60,7 @@ def create_app(
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
     retention: RetentionPolicy | None = None,
+    admin_password: str | None = None,
 ) -> FastAPI:
     store = store or EventStore(os.environ.get("HOOKSCOPE_DB", "hookscope.db"))
     secrets = load_secrets_from_env() if secrets is None else secrets
@@ -97,6 +98,21 @@ def create_app(
         return dead[:limit]
 
     app = FastAPI(title="HookScope", version=__version__)
+
+    password = auth.password_from_env(os.environ) if admin_password is None else admin_password or None
+    if password:
+
+        @app.middleware("http")
+        async def require_password(request: Request, call_next):
+            if auth.is_public(request.url.path) or auth.is_authorized(
+                request.headers.get("authorization"), password
+            ):
+                return await call_next(request)
+            return JSONResponse(
+                {"detail": "authentication required"},
+                status_code=401,
+                headers={"WWW-Authenticate": 'Basic realm="HookScope", charset="UTF-8"'},
+            )
 
     @app.get("/healthz")
     def healthz() -> dict:

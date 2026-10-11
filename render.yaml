@@ -15,7 +15,10 @@ services:
         value: "7"
       - key: HOOKSCOPE_MAX_EVENTS
         value: "5000"
-      # Secrets are entered in the Render dashboard, never committed.
+      # Secrets are entered in the Render dashboard, never committed. Without the admin
+      # password the dashboard and API (replay, purge) would be public.
+      - key: HOOKSCOPE_ADMIN_PASSWORD
+        sync: false
       - key: HOOKSCOPE_SECRET_GITHUB
         sync: false
       - key: HOOKSCOPE_SECRET_STRIPE

@@ -88,7 +88,9 @@ def test_render_health_check_is_served(tmp_path):
 def test_render_secrets_are_not_committed_and_retention_is_valid():
     env = _render_env()
     for key, var in env.items():
-        if key.startswith("HOOKSCOPE_SECRET_"):
+        if key.startswith("HOOKSCOPE_SECRET_") or key == "HOOKSCOPE_ADMIN_PASSWORD":
             assert var.get("sync") is False and "value" not in var, key
+    # A public deployment must not ship with an open dashboard and API.
+    assert "HOOKSCOPE_ADMIN_PASSWORD" in env
     plain = {key: var["value"] for key, var in env.items() if "value" in var}
     assert RetentionPolicy.from_env(plain).enabled

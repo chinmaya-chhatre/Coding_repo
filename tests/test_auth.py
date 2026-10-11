@@ -1,11 +1,15 @@
 import base64
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from hookscope.auth import is_authorized, is_public, password_from_env
 from hookscope.main import create_app
+from hookscope.retention import RetentionPolicy
+from hookscope.rules import ForwardRule
 from hookscope.store import EventStore
+from tests.test_replay import Recorder
 
 PASSWORD = "correct horse battery"
 
@@ -107,3 +111,26 @@ def test_is_authorized_unit():
     assert is_authorized(None, "pw") is False
     assert is_authorized("Bearer pw", "pw") is True
     assert is_authorized("Bearer  pw  ", "pw") is True
+
+
+def test_forwarding_and_purging_still_run_behind_the_password(tmp_path):
+    # Webhooks pass through the auth middleware, and their forwards and the retention purge run
+    # as background tasks after the response; neither may be lost when a password is set.
+    recorder = Recorder()
+    store = EventStore(str(tmp_path / "bg.db"))
+    for _ in range(3):
+        store.add("generic", {}, "{}", "valid", "")
+    app = create_app(
+        store=store,
+        secrets={},
+        admin_password=PASSWORD,
+        http_client=httpx.Client(transport=httpx.MockTransport(recorder)),
+        rules=[ForwardRule("other", "http://other.test/")],
+        retention=RetentionPolicy(max_events=1, interval_seconds=0),
+    )
+
+    resp = TestClient(app).post("/hooks/generic", content=b"{}")
+
+    assert resp.status_code == 202
+    assert len(recorder.requests) == 1
+    assert store.count() == 1

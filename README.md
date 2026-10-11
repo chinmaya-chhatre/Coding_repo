@@ -29,6 +29,8 @@ a replayed request. HookScope makes each of those visible.
 - Rejected deliveries return `401` **but are still stored**, so you can see why they failed
 - Web dashboard with per-source tabs, text search, date-range and signature-status filters, pretty-printed JSON and one-click replay
 - Optional password protection for the dashboard, API and metrics (providers stay signature-only)
+- Hardening for a public `/hooks/*`: request bodies are size-capped (`413`, default 5 MiB) and
+  credential headers (`Authorization`, `Cookie`, ...) are redacted, never stored or forwarded
 - Retention: automatic purging by age and/or event count, plus an on-demand `POST /api/purge`
 - One-step deploys: Dockerfile with a non-root entrypoint, `fly.toml` and a Render `render.yaml`
 - Prometheus metrics at `GET /metrics`: deliveries by source and verification result,

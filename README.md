@@ -394,6 +394,11 @@ ruff check . && pytest -q
 
 ## Roadmap
 
+The v1 roadmap below is complete apart from the public demo. The v2 plan, with phases, a
+schedule and one checklist item per commit, is in [ROADMAP.md](ROADMAP.md).
+
+### v1
+
 - [x] Replay an event to a target URL (with original headers)
 - [x] Replay button in the dashboard
 - [x] Forward/fan-out rules by source and event type (JSON rules file, attempts recorded)

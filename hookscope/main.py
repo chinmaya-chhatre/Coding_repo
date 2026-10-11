@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import httpx
@@ -26,6 +26,45 @@ TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 # Keep mapping keys in rule order: the output document follows the order of its transform.
 TEMPLATES.env.policies["json.dumps_kwargs"] = {"sort_keys": False}
 REPLAY_TIMEOUT_SECONDS = 10.0
+# Webhook payloads are small (GitHub caps its own at 25 MB and typical ones are a few KB).
+DEFAULT_MAX_BODY_BYTES = 5 * 1024 * 1024
+
+
+class BodyTooLargeError(Exception):
+    pass
+
+
+def max_body_bytes_from_env(env: Mapping[str, str]) -> int:
+    raw = env.get("HOOKSCOPE_MAX_BODY_BYTES", "").strip()
+    if not raw:
+        return DEFAULT_MAX_BODY_BYTES
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value < 1:
+        raise ValueError(f"HOOKSCOPE_MAX_BODY_BYTES must be a positive integer, got {raw!r}")
+    return value
+
+
+async def read_body_limited(request: Request, limit: int) -> bytes:
+    """The request body, refusing early when it is larger than ``limit`` bytes.
+
+    A declared Content-Length is checked before reading anything; chunked bodies without one
+    are counted as they stream in, so a client cannot make the server buffer more than the
+    limit by lying about (or omitting) the length.
+    """
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > limit:
+        raise BodyTooLargeError
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > limit:
+            raise BodyTooLargeError
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 class ReplayRequest(BaseModel):
@@ -61,6 +100,7 @@ def create_app(
     clock: Callable[[], float] = time.monotonic,
     retention: RetentionPolicy | None = None,
     admin_password: str | None = None,
+    max_body_bytes: int | None = None,
 ) -> FastAPI:
     store = store or EventStore(os.environ.get("HOOKSCOPE_DB", "hookscope.db"))
     secrets = load_secrets_from_env() if secrets is None else secrets
@@ -97,6 +137,8 @@ def create_app(
                 dead.append({**forward, "resendable": rule is not None})
         return dead[:limit]
 
+    body_limit = max_body_bytes_from_env(os.environ) if max_body_bytes is None else max_body_bytes
+
     app = FastAPI(title="HookScope", version=__version__)
 
     password = auth.password_from_env(os.environ) if admin_password is None else admin_password or None
@@ -123,7 +165,10 @@ def create_app(
         if source not in VERIFIERS:
             raise HTTPException(404, f"unknown source '{source}'. Supported: {sorted(VERIFIERS)}")
 
-        body = await request.body()
+        try:
+            body = await read_body_limited(request, body_limit)
+        except BodyTooLargeError:
+            raise HTTPException(413, f"request body exceeds the {body_limit} byte limit") from None
         headers = dict(request.headers)
         result = verify(source, body, headers, secrets.get(source), url=str(request.url))
         event_id = store.add(

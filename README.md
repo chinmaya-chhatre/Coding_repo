@@ -320,6 +320,7 @@ resets on every deploy.
 | `HOOKSCOPE_SECRET_SHOPIFY` | Shopify app client secret (signs webhooks) | unset |
 | `HOOKSCOPE_SECRET_SLACK` | Slack app signing secret | unset |
 | `HOOKSCOPE_SECRET_TWILIO` | Twilio account auth token | unset |
+| `HOOKSCOPE_MAX_BODY_BYTES` | Largest webhook body accepted on `/hooks/*` (larger gets `413`) | `5242880` (5 MiB) |
 | `HOOKSCOPE_ADMIN_PASSWORD` | Password for the dashboard, JSON API and `/metrics` | unset (open) |
 | `HOOKSCOPE_SECRET_SVIX` | Svix / Standard Webhooks endpoint secret (`whsec_...`) | unset |
 | `HOOKSCOPE_SECRET_GENERIC` | Shared secret for `X-Signature` | unset |
@@ -355,6 +356,10 @@ are authenticated by their signatures) and so does `/healthz` (load balancer che
 - Comparison is constant-time; unauthenticated requests get `401` with a `WWW-Authenticate`
   challenge. Use a long random password and serve over HTTPS (Fly.io and Render do).
 - Webhook secrets (`HOOKSCOPE_SECRET_*`) are separate: they only verify provider signatures.
+- `/hooks/*` has to stay open to the internet, so request bodies are capped at
+  `HOOKSCOPE_MAX_BODY_BYTES` (default 5 MiB). Oversized bodies get `413` and are neither
+  buffered nor stored, even when sent chunked without a `Content-Length`. Put a rate limit
+  at your proxy or CDN if you expect abuse.
 
 ## Architecture
 

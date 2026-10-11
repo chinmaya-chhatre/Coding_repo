@@ -16,6 +16,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from .store import body_bytes
+
 # Headers that describe the original connection rather than the payload.
 DROPPED_HEADERS = {"host", "content-length", "connection", "transfer-encoding", "accept-encoding"}
 REPLAY_HEADER = "X-HookScope-Replay"
@@ -67,7 +69,7 @@ def replay_event(
     headers = replay_headers(event) if headers is None else headers
     started = time.perf_counter()
     try:
-        response = client.post(target_url, content=event["body"].encode(), headers=headers)
+        response = client.post(target_url, content=body_bytes(event), headers=headers)
     except httpx.HTTPError as exc:
         return ReplayResult(target_url, None, _elapsed_ms(started), error=f"{type(exc).__name__}: {exc}")
     return ReplayResult(

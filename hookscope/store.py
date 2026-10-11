@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import sqlite3
 from collections.abc import Iterator
@@ -16,7 +18,9 @@ CREATE TABLE IF NOT EXISTS events (
     headers       TEXT NOT NULL,
     body          TEXT NOT NULL,
     verification  TEXT NOT NULL,
-    reason        TEXT NOT NULL DEFAULT ''
+    reason        TEXT NOT NULL DEFAULT '',
+    -- The exact bytes, only for bodies that are not valid UTF-8 (``body`` is then lossy).
+    body_base64   TEXT
 );
 
 CREATE TABLE IF NOT EXISTS forwards (
@@ -54,11 +58,27 @@ class EventStore:
         finally:
             conn.close()
 
-    def add(self, source: str, headers: dict[str, str], body: str, verification: str, reason: str) -> int:
+    def add(
+        self,
+        source: str,
+        headers: dict[str, str],
+        body: str,
+        verification: str,
+        reason: str,
+        raw_body: bytes | None = None,
+    ) -> int:
+        """Store an event. Pass ``raw_body`` (the bytes as received) so that bodies which
+        are not valid UTF-8 can later be replayed and forwarded byte for byte."""
+        body_base64 = None
+        if raw_body is not None:
+            try:
+                raw_body.decode("utf-8")
+            except UnicodeDecodeError:
+                body_base64 = base64.b64encode(raw_body).decode()
         with self._connect() as conn:
             cur = conn.execute(
-                "INSERT INTO events (source, received_at, headers, body, verification, reason) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO events (source, received_at, headers, body, verification, reason, body_base64) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     source,
                     _now(),
@@ -66,6 +86,7 @@ class EventStore:
                     body,
                     verification,
                     reason,
+                    body_base64,
                 ),
             )
             return int(cur.lastrowid)
@@ -218,6 +239,20 @@ def _migrate(conn: sqlite3.Connection) -> None:
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(forwards)")}
     if "attempt" not in columns:
         conn.execute("ALTER TABLE forwards ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1")
+    event_columns = {row["name"] for row in conn.execute("PRAGMA table_info(events)")}
+    if "body_base64" not in event_columns:
+        conn.execute("ALTER TABLE events ADD COLUMN body_base64 TEXT")
+
+
+def body_bytes(event: dict) -> bytes:
+    """The event body exactly as received (falls back to the UTF-8 text)."""
+    encoded = event.get("body_base64")
+    if encoded:
+        try:
+            return base64.b64decode(encoded, validate=True)
+        except (binascii.Error, ValueError):
+            pass
+    return event["body"].encode()
 
 
 def _now() -> str:

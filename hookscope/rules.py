@@ -293,7 +293,8 @@ def forward_event(event: dict, rule: ForwardRule, client: httpx.Client) -> Repla
     else:
         document = None
     if document is not None:
-        new_event = {**event, "body": json.dumps(document)}
+        # The new JSON document replaces the original bytes too.
+        new_event = {**event, "body": json.dumps(document), "body_base64": None}
         headers = {"Content-Type": "application/json", FORWARD_HEADER: rule.name}
         return replay_event(new_event, rule.target_url, client, headers=headers)
     headers = replay_headers(event)

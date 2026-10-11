@@ -35,7 +35,10 @@ a replayed request. HookScope makes each of those visible.
 - JSON API: `GET /api/events`, `GET /api/events/{id}`. `/api/events` filters with `source`,
   `verification`, `q` (case-insensitive text in the body or headers) and `since` / `until`
   (ISO dates or datetimes, UTC unless an offset is given; a date-only `until` covers the whole day)
-- Replay any captured event to another URL with its original headers, so signatures still verify
+  Events whose body is not valid UTF-8 also carry `body_base64` with the exact bytes received
+  (`body` then shows a readable but lossy decoding); it is `null` otherwise.
+- Replay any captured event to another URL with its original headers and exact body bytes
+  (including non-UTF-8 payloads), so signatures still verify
 - Forwarding rules: fan accepted events out to one or more URLs by source and event type,
   with every attempt recorded (`GET /api/events/{id}/forwards`) and shown in the dashboard
 - Forward retries: re-send failed forwards with exponential backoff, honouring `Retry-After`

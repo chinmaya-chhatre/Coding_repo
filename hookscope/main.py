@@ -114,6 +114,7 @@ def create_app(
             source=source,
             headers=headers,
             body=body.decode("utf-8", errors="replace"),
+            raw_body=body,
             verification=result.status,
             reason=result.reason,
         )

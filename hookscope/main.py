@@ -11,13 +11,29 @@ import httpx
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
 
 from . import __version__, auth, metrics
 from .config import Settings
 from .replay import InvalidTargetError, ReplayResult, replay_event
 from .retention import Purger, RetentionPolicy
 from .rules import ForwardRule, deliver, event_type, forward_event, is_dead_letter, load_rules, matching_rules
+from .schemas import (
+    DeadLetterOut,
+    EventOut,
+    ForwardOut,
+    HealthOut,
+    PurgeOut,
+    PurgeRequest,
+    ReceiveOut,
+    ReplayOut,
+    ReplayRequest,
+    ResendOut,
+    RuleOut,
+    SlackChallengeOut,
+    TransformPreviewOut,
+    TransformPreviewRequest,
+    error_responses,
+)
 from .signatures import VERIFIERS, verify
 from .store import EventStore
 from .transform import InvalidTransformError, apply_transform, validate_mapping
@@ -50,20 +66,6 @@ async def read_body_limited(request: Request, limit: int) -> bytes:
             raise BodyTooLargeError
         chunks.append(chunk)
     return b"".join(chunks)
-
-
-class ReplayRequest(BaseModel):
-    target_url: str
-
-
-class PurgeRequest(BaseModel):
-    older_than: str | None = None
-    keep_last: int | None = None
-
-
-class TransformPreviewRequest(BaseModel):
-    rule: str | None = None
-    transform: dict | None = None
 
 
 def create_app(
@@ -133,11 +135,21 @@ def create_app(
                 headers={"WWW-Authenticate": 'Basic realm="HookScope", charset="UTF-8"'},
             )
 
-    @app.get("/healthz")
+    @app.get("/healthz", response_model=HealthOut)
     def healthz() -> dict:
         return {"status": "ok", "version": __version__}
 
-    @app.post("/hooks/{source}", status_code=202)
+    @app.post(
+        "/hooks/{source}",
+        status_code=202,
+        # Rejected deliveries (bad signature) answer 401 with the same body, and are still stored.
+        responses={
+            202: {"model": ReceiveOut},
+            200: {"model": SlackChallengeOut, "description": "Slack `url_verification` handshake."},
+            401: {"model": ReceiveOut, "description": "Signature check failed; the event is stored anyway."},
+            **error_responses(404, 413),
+        },
+    )
     async def receive(source: str, request: Request, background: BackgroundTasks) -> JSONResponse:
         if source not in VERIFIERS:
             raise HTTPException(404, f"unknown source '{source}'. Supported: {sorted(VERIFIERS)}")
@@ -184,7 +196,7 @@ def create_app(
         body = metrics.render(store, sources=VERIFIERS, dead_letters=len(dead_letters()))
         return Response(body, media_type=metrics.CONTENT_TYPE)
 
-    @app.get("/api/events")
+    @app.get("/api/events", response_model=list[EventOut], responses=error_responses(422))
     def list_events(
         limit: int = 50,
         source: str | None = None,
@@ -205,25 +217,34 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(422, f"since/until must be ISO dates or datetimes: {exc}") from exc
 
-    @app.get("/api/events/{event_id}")
+    @app.get("/api/events/{event_id}", response_model=EventOut, responses=error_responses(404))
     def get_event(event_id: int) -> dict:
         event = store.get(event_id)
         if event is None:
             raise HTTPException(404, "event not found")
         return event
 
-    @app.get("/api/events/{event_id}/forwards")
+    @app.get(
+        "/api/events/{event_id}/forwards", response_model=list[ForwardOut], responses=error_responses(404)
+    )
     def list_forwards(event_id: int) -> list[dict]:
         if store.get(event_id) is None:
             raise HTTPException(404, "event not found")
         return store.list_forwards(event_id)
 
-    @app.get("/api/dead-letters")
+    @app.get("/api/dead-letters", response_model=list[DeadLetterOut])
     def list_dead_letters(limit: int = 100) -> list[dict]:
         """Forwards whose latest attempt failed for good (retries exhausted or a permanent error)."""
         return dead_letters(min(limit, 500))
 
-    @app.post("/api/events/{event_id}/forwards/{rule_name}/resend")
+    @app.post(
+        "/api/events/{event_id}/forwards/{rule_name}/resend",
+        responses={
+            200: {"model": ResendOut},
+            502: {"model": ResendOut, "description": "The target could not be reached."},
+            **error_responses(404),
+        },
+    )
     def resend_forward(event_id: int, rule_name: str) -> JSONResponse:
         event = store.get(event_id)
         if event is None:
@@ -244,11 +265,11 @@ def create_app(
             status_code=502 if result.status_code is None else 200,
         )
 
-    @app.get("/api/rules")
+    @app.get("/api/rules", response_model=list[RuleOut])
     def list_rules() -> list[dict]:
         return [rule.to_dict() for rule in rules]
 
-    @app.post("/api/purge")
+    @app.post("/api/purge", response_model=PurgeOut, responses=error_responses(400, 422))
     def purge(payload: PurgeRequest | None = None) -> dict:
         """Delete events now: by the given rules, or by the configured retention policy."""
         if payload and (payload.older_than or payload.keep_last is not None):
@@ -266,7 +287,14 @@ def create_app(
             )
         return {"removed": removed, "remaining": store.count()}
 
-    @app.post("/api/events/{event_id}/replay")
+    @app.post(
+        "/api/events/{event_id}/replay",
+        responses={
+            200: {"model": ReplayOut},
+            502: {"model": ReplayOut, "description": "The target could not be reached."},
+            **error_responses(404, 422),
+        },
+    )
     def replay(event_id: int, payload: ReplayRequest) -> JSONResponse:
         event = store.get(event_id)
         if event is None:
@@ -278,7 +306,11 @@ def create_app(
         # 502 when the target could not be reached at all; otherwise pass the outcome through.
         return JSONResponse(result.to_dict(), status_code=502 if result.status_code is None else 200)
 
-    @app.post("/api/events/{event_id}/transform-preview")
+    @app.post(
+        "/api/events/{event_id}/transform-preview",
+        response_model=TransformPreviewOut,
+        responses=error_responses(404, 422),
+    )
     def preview_transform(event_id: int, payload: TransformPreviewRequest) -> dict:
         event = store.get(event_id)
         if event is None:

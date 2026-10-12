@@ -1,7 +1,8 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from hookscope.main import DEFAULT_MAX_BODY_BYTES, create_app, max_body_bytes_from_env
+from hookscope.config import DEFAULT_MAX_BODY_BYTES, max_body_bytes_from_env
+from hookscope.main import create_app
 from hookscope.store import EventStore
 
 LIMIT = 1000

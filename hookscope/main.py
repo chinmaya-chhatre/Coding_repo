@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import json
-import os
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from pathlib import Path
 
 import httpx
@@ -15,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from . import __version__, auth, metrics
+from .config import Settings
 from .replay import InvalidTargetError, ReplayResult, replay_event
 from .retention import Purger, RetentionPolicy
 from .rules import ForwardRule, deliver, event_type, forward_event, is_dead_letter, load_rules, matching_rules
@@ -26,25 +26,10 @@ TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 # Keep mapping keys in rule order: the output document follows the order of its transform.
 TEMPLATES.env.policies["json.dumps_kwargs"] = {"sort_keys": False}
 REPLAY_TIMEOUT_SECONDS = 10.0
-# Webhook payloads are small (GitHub caps its own at 25 MB and typical ones are a few KB).
-DEFAULT_MAX_BODY_BYTES = 5 * 1024 * 1024
 
 
 class BodyTooLargeError(Exception):
     pass
-
-
-def max_body_bytes_from_env(env: Mapping[str, str]) -> int:
-    raw = env.get("HOOKSCOPE_MAX_BODY_BYTES", "").strip()
-    if not raw:
-        return DEFAULT_MAX_BODY_BYTES
-    try:
-        value = int(raw)
-    except ValueError:
-        value = 0
-    if value < 1:
-        raise ValueError(f"HOOKSCOPE_MAX_BODY_BYTES must be a positive integer, got {raw!r}")
-    return value
 
 
 async def read_body_limited(request: Request, limit: int) -> bytes:
@@ -81,16 +66,6 @@ class TransformPreviewRequest(BaseModel):
     transform: dict | None = None
 
 
-def load_secrets_from_env() -> dict[str, str]:
-    """Read HOOKSCOPE_SECRET_<SOURCE> for every supported source."""
-    secrets = {}
-    for source in VERIFIERS:
-        value = os.environ.get(f"HOOKSCOPE_SECRET_{source.upper()}")
-        if value:
-            secrets[source] = value
-    return secrets
-
-
 def create_app(
     store: EventStore | None = None,
     secrets: dict[str, str] | None = None,
@@ -102,11 +77,13 @@ def create_app(
     admin_password: str | None = None,
     max_body_bytes: int | None = None,
 ) -> FastAPI:
-    store = store or EventStore(os.environ.get("HOOKSCOPE_DB", "hookscope.db"))
-    secrets = load_secrets_from_env() if secrets is None else secrets
+    # Explicit arguments (used by tests and embedding) win over the environment.
+    settings = Settings.from_env()
+    store = store or EventStore(settings.db_path)
+    secrets = settings.secrets if secrets is None else secrets
     http_client = http_client or httpx.Client(timeout=REPLAY_TIMEOUT_SECONDS)
-    rules = load_rules(os.environ.get("HOOKSCOPE_RULES")) if rules is None else rules
-    purger = Purger(store, RetentionPolicy.from_env() if retention is None else retention, clock)
+    rules = load_rules(settings.rules_path) if rules is None else rules
+    purger = Purger(store, settings.retention if retention is None else retention, clock)
 
     def run_forwards(event_id: int, rule_list: list[ForwardRule]) -> None:
         event = store.get(event_id)
@@ -137,11 +114,11 @@ def create_app(
                 dead.append({**forward, "resendable": rule is not None})
         return dead[:limit]
 
-    body_limit = max_body_bytes_from_env(os.environ) if max_body_bytes is None else max_body_bytes
+    body_limit = settings.max_body_bytes if max_body_bytes is None else max_body_bytes
 
     app = FastAPI(title="HookScope", version=__version__)
 
-    password = auth.password_from_env(os.environ) if admin_password is None else admin_password or None
+    password = settings.admin_password if admin_password is None else admin_password or None
     if password:
 
         @app.middleware("http")

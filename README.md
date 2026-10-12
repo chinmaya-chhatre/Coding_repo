@@ -314,6 +314,9 @@ resets on every deploy.
 
 ## Configuration
 
+All settings are read from the environment once, at startup (`hookscope/config.py`). Invalid
+values stop the app with one error that lists every problem, not just the first.
+
 | Variable | Purpose | Default |
 |---|---|---|
 | `HOOKSCOPE_DB` | SQLite file path | `hookscope.db` |
@@ -378,6 +381,7 @@ provider ──POST /hooks/{source}──▶ FastAPI ──▶ signatures.verify
 
 - `hookscope/signatures.py` — one pure function per provider, easy to unit test
 - `hookscope/store.py` — thin SQLite wrapper, indexed by receive time and source
+- `hookscope/config.py` — every `HOOKSCOPE_*` setting parsed and validated in one place
 - `hookscope/auth.py` — optional Basic/Bearer password for everything except `/hooks/*` and `/healthz`
 - `hookscope/metrics.py` — Prometheus text exposition built from stored counts
 - `hookscope/replay.py` — re-sends a stored event with its original headers

@@ -40,7 +40,9 @@ a replayed request. HookScope makes each of those visible.
   grouped, summarised operations and request examples (behind the admin password when one is set).
   `GET /api/events`, `GET /api/events/{id}`. `/api/events` filters with `source`,
   `verification`, `q` (case-insensitive text in the body or headers) and `since` / `until`
-  (ISO dates or datetimes, UTC unless an offset is given; a date-only `until` covers the whole day)
+  (ISO dates or datetimes, UTC unless an offset is given; a date-only `until` covers the whole day).
+  Results are paged by cursor: when more events match, the response carries an `X-Next-Cursor` header;
+  pass its value as `before_id` to get the next page (stable while new events arrive).
   Events whose body is not valid UTF-8 also carry `body_base64` with the exact bytes received
   (`body` then shows a readable but lossy decoding); it is `null` otherwise.
 - Replay any captured event to another URL with its original headers and exact body bytes

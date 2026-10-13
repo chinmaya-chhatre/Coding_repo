@@ -104,8 +104,12 @@ class EventStore:
         since: str | None = None,
         until: str | None = None,
         verification: str | None = None,
+        before_id: int | None = None,
     ) -> list[dict]:
         """Newest events first, optionally filtered.
+
+        ``before_id`` keeps only events with a smaller id, so passing the id of the last event
+        of a page returns the next page, and stays correct while new events arrive.
 
         ``q`` is a case-insensitive substring match on the body and headers. ``since`` and
         ``until`` are ISO dates or datetimes (UTC unless an offset is given); a date-only
@@ -113,6 +117,9 @@ class EventStore:
         """
         conditions: list[str] = []
         params: list = []
+        if before_id is not None:
+            conditions.append("id < ?")
+            params.append(before_id)
         if source:
             conditions.append("source = ?")
             params.append(source)

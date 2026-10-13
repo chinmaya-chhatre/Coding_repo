@@ -232,27 +232,47 @@ def create_app(
         tags=["events"],
         summary="List and search events",
         response_model=list[EventOut],
-        responses=error_responses(422),
+        responses={
+            200: {
+                "headers": {
+                    "X-Next-Cursor": {
+                        "description": "Set when more events match; use it as `before_id` for the next page.",
+                        "schema": {"type": "integer"},
+                    }
+                }
+            },
+            **error_responses(422),
+        },
     )
     def list_events(
+        response: Response,
         limit: int = 50,
         source: str | None = None,
         q: str | None = None,
         since: str | None = None,
         until: str | None = None,
         verification: str | None = None,
+        before_id: int | None = None,
     ) -> list[dict]:
+        """Newest first. When more events match, `X-Next-Cursor` holds the `before_id` for the next page."""
+        limit = min(limit, 500)
         try:
-            return store.list(
-                limit=min(limit, 500),
+            # One extra row tells us whether another page exists without a second query.
+            events = store.list(
+                limit=limit + 1 if limit >= 1 else limit,
                 source=source,
                 q=q,
                 since=since,
                 until=until,
                 verification=verification,
+                before_id=before_id,
             )
         except ValueError as exc:
             raise HTTPException(422, f"since/until must be ISO dates or datetimes: {exc}") from exc
+        if limit >= 1 and len(events) > limit:
+            events = events[:limit]
+            response.headers["X-Next-Cursor"] = str(events[-1]["id"])
+        return events
 
     @app.get(
         "/api/events/{event_id}",

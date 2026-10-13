@@ -19,6 +19,7 @@
     nav { display:flex; flex-wrap:wrap; gap:4px 12px; }
     nav a { color:var(--text); }
     nav a.active { font-weight:600; }
+    nav.pager { margin:16px 0; }
     .filters { display:flex; flex-wrap:wrap; gap:8px; align-items:end; margin:12px 0; }
     .filters label { display:flex; flex-direction:column; font-size:13px; color:var(--muted); gap:2px; }
     .filters label.grow { flex:1 1 200px; }
@@ -179,6 +180,12 @@
     </form>
   </details>
   {% endfor %}
+  {% if older_id or paged %}
+  <nav class="pager" aria-label="Pages of events">
+    {% if paged %}<a href="/?{{ dict(filters, **({'source': active} if active else {})) | urlencode }}">&larr; Newest events</a>{% endif %}
+    {% if older_id %}<a rel="next" href="/?{{ dict(filters, before_id=older_id, **({'source': active} if active else {})) | urlencode }}">Older events &rarr;</a>{% endif %}
+  </nav>
+  {% endif %}
 </main>
 <script type="application/json" id="transform-rules">{{ transform_rules | tojson }}</script>
 <script>

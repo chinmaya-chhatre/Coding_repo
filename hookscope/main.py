@@ -42,6 +42,7 @@ TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 # Keep mapping keys in rule order: the output document follows the order of its transform.
 TEMPLATES.env.policies["json.dumps_kwargs"] = {"sort_keys": False}
 REPLAY_TIMEOUT_SECONDS = 10.0
+DASHBOARD_PAGE_SIZE = 100
 
 API_DESCRIPTION = (
     "Receives webhooks from GitHub, Stripe, Shopify, Slack, Twilio, Svix-style senders and "
@@ -442,13 +443,21 @@ def create_app(
         since: str | None = None,
         until: str | None = None,
         verification: str | None = None,
+        before_id: int | None = None,
     ) -> HTMLResponse:
         # Empty form fields arrive as "", which means "no filter".
         filters = {"q": q or None, "since": since or None, "until": until or None,
                    "verification": verification or None}
         filter_error = ""
+        older_id = None
         try:
-            events = store.list(limit=100, source=source, **filters)
+            # One extra row says whether an older page exists.
+            events = store.list(
+                limit=DASHBOARD_PAGE_SIZE + 1, source=source, before_id=before_id, **filters
+            )
+            if len(events) > DASHBOARD_PAGE_SIZE:
+                events = events[:DASHBOARD_PAGE_SIZE]
+                older_id = events[-1]["id"]
         except ValueError:
             filter_error = "Dates must look like 2026-10-08 (or a full ISO datetime)."
             events = []
@@ -466,6 +475,8 @@ def create_app(
                 "active": source,
                 "filters": {k: v for k, v in filters.items() if v},
                 "filter_error": filter_error,
+                "older_id": older_id,
+                "paged": before_id is not None,
                 "verifications": ["valid", "invalid", "unsigned", "no_secret"],
                 "configured": sorted(secrets),
                 "dead_letters": dead_letters(),

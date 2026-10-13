@@ -134,3 +134,10 @@ def test_forwarding_and_purging_still_run_behind_the_password(tmp_path):
     assert resp.status_code == 202
     assert len(recorder.requests) == 1
     assert store.count() == 1
+
+
+@pytest.mark.parametrize("path", ["/docs", "/redoc", "/openapi.json"])
+def test_api_docs_need_the_password(client, path):
+    assert client.get(path).status_code == 401
+    assert client.get(path, headers=_basic("me", "wrong")).status_code == 401
+    assert client.get(path, headers=_basic("me", PASSWORD)).status_code == 200

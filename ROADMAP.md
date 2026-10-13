@@ -19,7 +19,7 @@ Finishing early is fine. Never add an item just to keep a streak.
 ## P1 Foundations and API quality (14)
 - [x] P1.01 `config.py`: one `Settings` object parsed from env (secrets, retention, body limit, password, rules path, db path); report all invalid values together at startup
 - [x] P1.02 Pydantic response models for events, forwards and dead letters; typed OpenAPI schemas
-- [ ] P1.03 OpenAPI metadata: tags, summaries, descriptions, examples; `/docs` behind the password
+- [x] P1.03 OpenAPI metadata: tags, summaries, descriptions, examples; `/docs` behind the password
 - [ ] P1.04 Cursor pagination for `GET /api/events` (`before_id`, `next` cursor in the response)
 - [ ] P1.05 Dashboard "older events" paging on top of the cursor
 - [ ] P1.06 Event permalink page `/events/{id}` (shareable detail view)

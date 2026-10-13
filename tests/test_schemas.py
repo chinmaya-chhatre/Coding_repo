@@ -144,3 +144,32 @@ def test_event_schema_marks_the_verification_enum_and_nullable_bytes(client):
     schema = client.get("/openapi.json").json()["components"]["schemas"]["EventOut"]
     assert schema["properties"]["verification"]["enum"] == list(get_args(Verification))
     assert set(schema["required"]) >= {"id", "source", "body", "body_base64", "verification"}
+
+
+def test_openapi_has_title_description_and_tag_descriptions(client):
+    spec = client.get("/openapi.json").json()
+    assert spec["info"]["title"] == "HookScope"
+    assert "HOOKSCOPE_ADMIN_PASSWORD" in spec["info"]["description"]
+    described = {tag["name"] for tag in spec["tags"] if tag.get("description")}
+    assert {"webhooks", "events", "forwarding", "system", "dashboard"} <= described
+
+
+def test_every_operation_has_a_tag_and_summary(client):
+    spec = client.get("/openapi.json").json()
+    declared = {tag["name"] for tag in spec["tags"]}
+    for path, methods in spec["paths"].items():
+        for method, operation in methods.items():
+            where = f"{method.upper()} {path}"
+            assert operation.get("summary"), f"{where} has no summary"
+            tags = set(operation.get("tags", []))
+            assert tags and tags <= declared, f"{where} has no declared tag"
+
+
+def test_request_bodies_carry_examples(client):
+    schemas = client.get("/openapi.json").json()["components"]["schemas"]
+    for model, field in [
+        ("ReplayRequest", "target_url"),
+        ("PurgeRequest", "older_than"),
+        ("TransformPreviewRequest", "transform"),
+    ]:
+        assert schemas[model]["properties"][field]["examples"], f"{model}.{field} has no example"

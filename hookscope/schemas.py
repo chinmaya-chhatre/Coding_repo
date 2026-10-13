@@ -134,14 +134,27 @@ class TransformPreviewOut(BaseModel):
 
 
 class ReplayRequest(BaseModel):
-    target_url: str = Field(description="Absolute http(s) URL to send the stored event to.")
+    target_url: str = Field(
+        description="Absolute http(s) URL to send the stored event to.",
+        examples=["https://example.com/webhooks"],
+    )
 
 
 class PurgeRequest(BaseModel):
-    older_than: str | None = Field(default=None, description="ISO date or datetime; older events go.")
-    keep_last: int | None = Field(default=None, description="Keep only this many newest events.")
+    older_than: str | None = Field(
+        default=None, description="ISO date or datetime; older events go.", examples=["2026-09-01"]
+    )
+    keep_last: int | None = Field(
+        default=None, description="Keep only this many newest events.", examples=[1000]
+    )
 
 
 class TransformPreviewRequest(BaseModel):
-    rule: str | None = Field(default=None, description="Name of a rule whose transform to preview.")
-    transform: dict[str, Any] | None = Field(default=None, description="An ad-hoc mapping to preview.")
+    rule: str | None = Field(
+        default=None, description="Name of a rule whose transform to preview.", examples=["notify-slack"]
+    )
+    transform: dict[str, Any] | None = Field(
+        default=None,
+        description="An ad-hoc mapping to preview.",
+        examples=[{"kind": "$.type", "repo": "$.repository.full_name"}],
+    )

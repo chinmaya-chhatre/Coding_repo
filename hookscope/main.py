@@ -43,6 +43,21 @@ TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 TEMPLATES.env.policies["json.dumps_kwargs"] = {"sort_keys": False}
 REPLAY_TIMEOUT_SECONDS = 10.0
 
+API_DESCRIPTION = (
+    "Receives webhooks from GitHub, Stripe, Shopify, Slack, Twilio, Svix-style senders and "
+    "generic HMAC senders; verifies their signatures; stores every delivery; and forwards, "
+    "retries and replays them. `/hooks/*` and `/healthz` are always public. When "
+    "`HOOKSCOPE_ADMIN_PASSWORD` is set, everything else, this page included, needs HTTP Basic "
+    "(any username) or `Authorization: Bearer <password>`."
+)
+OPENAPI_TAGS = [
+    {"name": "webhooks", "description": "Where providers send events. Authenticated by signature."},
+    {"name": "events", "description": "Browse, search and delete stored deliveries."},
+    {"name": "forwarding", "description": "Rules, forward attempts, dead letters, replay and transforms."},
+    {"name": "system", "description": "Health and Prometheus metrics."},
+    {"name": "dashboard", "description": "The HTML dashboard."},
+]
+
 
 class BodyTooLargeError(Exception):
     pass
@@ -118,7 +133,12 @@ def create_app(
 
     body_limit = settings.max_body_bytes if max_body_bytes is None else max_body_bytes
 
-    app = FastAPI(title="HookScope", version=__version__)
+    app = FastAPI(
+        title="HookScope",
+        version=__version__,
+        description=API_DESCRIPTION,
+        openapi_tags=OPENAPI_TAGS,
+    )
 
     password = settings.admin_password if admin_password is None else admin_password or None
     if password:
@@ -135,12 +155,19 @@ def create_app(
                 headers={"WWW-Authenticate": 'Basic realm="HookScope", charset="UTF-8"'},
             )
 
-    @app.get("/healthz", response_model=HealthOut)
+    @app.get(
+        "/healthz",
+        tags=["system"],
+        summary="Liveness check",
+        response_model=HealthOut,
+    )
     def healthz() -> dict:
         return {"status": "ok", "version": __version__}
 
     @app.post(
         "/hooks/{source}",
+        tags=["webhooks"],
+        summary="Receive a webhook",
         status_code=202,
         # Rejected deliveries (bad signature) answer 401 with the same body, and are still stored.
         responses={
@@ -191,12 +218,22 @@ def create_app(
             background=background,
         )
 
-    @app.get("/metrics")
+    @app.get(
+        "/metrics",
+        tags=["system"],
+        summary="Prometheus metrics",
+    )
     def prometheus_metrics() -> Response:
         body = metrics.render(store, sources=VERIFIERS, dead_letters=len(dead_letters()))
         return Response(body, media_type=metrics.CONTENT_TYPE)
 
-    @app.get("/api/events", response_model=list[EventOut], responses=error_responses(422))
+    @app.get(
+        "/api/events",
+        tags=["events"],
+        summary="List and search events",
+        response_model=list[EventOut],
+        responses=error_responses(422),
+    )
     def list_events(
         limit: int = 50,
         source: str | None = None,
@@ -217,7 +254,13 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(422, f"since/until must be ISO dates or datetimes: {exc}") from exc
 
-    @app.get("/api/events/{event_id}", response_model=EventOut, responses=error_responses(404))
+    @app.get(
+        "/api/events/{event_id}",
+        tags=["events"],
+        summary="Get one event",
+        response_model=EventOut,
+        responses=error_responses(404),
+    )
     def get_event(event_id: int) -> dict:
         event = store.get(event_id)
         if event is None:
@@ -225,20 +268,31 @@ def create_app(
         return event
 
     @app.get(
-        "/api/events/{event_id}/forwards", response_model=list[ForwardOut], responses=error_responses(404)
+        "/api/events/{event_id}/forwards",
+        tags=["forwarding"],
+        summary="List an event's forward attempts",
+        response_model=list[ForwardOut],
+        responses=error_responses(404),
     )
     def list_forwards(event_id: int) -> list[dict]:
         if store.get(event_id) is None:
             raise HTTPException(404, "event not found")
         return store.list_forwards(event_id)
 
-    @app.get("/api/dead-letters", response_model=list[DeadLetterOut])
+    @app.get(
+        "/api/dead-letters",
+        tags=["forwarding"],
+        summary="List dead letters",
+        response_model=list[DeadLetterOut],
+    )
     def list_dead_letters(limit: int = 100) -> list[dict]:
         """Forwards whose latest attempt failed for good (retries exhausted or a permanent error)."""
         return dead_letters(min(limit, 500))
 
     @app.post(
         "/api/events/{event_id}/forwards/{rule_name}/resend",
+        tags=["forwarding"],
+        summary="Re-send a forward",
         responses={
             200: {"model": ResendOut},
             502: {"model": ResendOut, "description": "The target could not be reached."},
@@ -265,11 +319,22 @@ def create_app(
             status_code=502 if result.status_code is None else 200,
         )
 
-    @app.get("/api/rules", response_model=list[RuleOut])
+    @app.get(
+        "/api/rules",
+        tags=["forwarding"],
+        summary="List forwarding rules",
+        response_model=list[RuleOut],
+    )
     def list_rules() -> list[dict]:
         return [rule.to_dict() for rule in rules]
 
-    @app.post("/api/purge", response_model=PurgeOut, responses=error_responses(400, 422))
+    @app.post(
+        "/api/purge",
+        tags=["events"],
+        summary="Delete events now",
+        response_model=PurgeOut,
+        responses=error_responses(400, 422),
+    )
     def purge(payload: PurgeRequest | None = None) -> dict:
         """Delete events now: by the given rules, or by the configured retention policy."""
         if payload and (payload.older_than or payload.keep_last is not None):
@@ -289,6 +354,8 @@ def create_app(
 
     @app.post(
         "/api/events/{event_id}/replay",
+        tags=["forwarding"],
+        summary="Replay an event to a URL",
         responses={
             200: {"model": ReplayOut},
             502: {"model": ReplayOut, "description": "The target could not be reached."},
@@ -308,6 +375,8 @@ def create_app(
 
     @app.post(
         "/api/events/{event_id}/transform-preview",
+        tags=["forwarding"],
+        summary="Preview a transform",
         response_model=TransformPreviewOut,
         responses=error_responses(404, 422),
     )
@@ -340,7 +409,12 @@ def create_app(
             "output": apply_transform(mapping, event, kind),
         }
 
-    @app.get("/", response_class=HTMLResponse)
+    @app.get(
+        "/",
+        tags=["dashboard"],
+        summary="Dashboard",
+        response_class=HTMLResponse,
+    )
     def dashboard(
         request: Request,
         source: str | None = None,

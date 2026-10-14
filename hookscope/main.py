@@ -122,6 +122,14 @@ def create_app(
 
         deliver(event, rule_list, http_client, record, sleep, clock)
 
+    def decorate_events(events: list[dict]) -> None:
+        """Add what the event templates show: pretty body and the forward attempts."""
+        forwards = store.forwards_by_event([event["id"] for event in events])
+        for event in events:
+            event["pretty_body"] = _pretty(event["body"])
+            event["forwards"] = forwards[event["id"]]
+            event["forwards_failed"] = sum(1 for f in event["forwards"] if not _forward_ok(f))
+
     def dead_letters(limit: int | None = None) -> list[dict]:
         by_name = {rule.name: rule for rule in rules}
         dead = []
@@ -461,11 +469,7 @@ def create_app(
         except ValueError:
             filter_error = "Dates must look like 2026-10-08 (or a full ISO datetime)."
             events = []
-        forwards = store.forwards_by_event([event["id"] for event in events])
-        for event in events:
-            event["pretty_body"] = _pretty(event["body"])
-            event["forwards"] = forwards[event["id"]]
-            event["forwards_failed"] = sum(1 for f in event["forwards"] if not _forward_ok(f))
+        decorate_events(events)
         return TEMPLATES.TemplateResponse(
             request,
             "index.html",
@@ -483,6 +487,28 @@ def create_app(
                 # Rule mappings let the preview form start from a rule's transform and tweak it.
                 "transform_rules": {rule.name: rule.transform for rule in rules if rule.transform},
             },
+        )
+
+    @app.get(
+        "/events/{event_id}",
+        tags=["dashboard"],
+        summary="Event detail page",
+        response_class=HTMLResponse,
+        responses={404: {"description": "No such event (an HTML page).", "content": {"text/html": {}}}},
+    )
+    def event_page(event_id: int, request: Request) -> HTMLResponse:
+        """A shareable page for one event: body, headers, forwards, replay and transform preview."""
+        event = store.get(event_id)
+        if event is not None:
+            decorate_events([event])
+        return TEMPLATES.TemplateResponse(
+            request,
+            "event.html",
+            {
+                "event": event,
+                "transform_rules": {rule.name: rule.transform for rule in rules if rule.transform},
+            },
+            status_code=200 if event else 404,
         )
 
     return app

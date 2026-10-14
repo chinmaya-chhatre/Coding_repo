@@ -1,0 +1,57 @@
+  <details{{ ' open' if expanded }}>
+    <summary>
+      <strong>#{{ e.id }}</strong>
+      <span>{{ e.source }}</span>
+      <span class="badge {{ e.verification }}">{{ e.verification }}</span>
+      <span class="muted">{{ e.received_at }}</span>
+      {% if e.reason %}<span class="muted">{{ e.reason }}</span>{% endif %}
+      {% if e.forwards %}
+      <span class="badge {{ 'fwd-err' if e.forwards_failed else 'fwd-ok' }}">
+        forwarded {{ e.forwards | length }}{% if e.forwards_failed %}, {{ e.forwards_failed }} failed{% endif %}
+      </span>
+      {% endif %}
+    </summary>
+    <p class="muted"><a href="/events/{{ e.id }}">Permalink</a></p>
+    <pre>{{ e.pretty_body }}</pre>
+    <pre>{% for k, v in e.headers.items() %}{{ k }}: {{ v }}
+{% endfor %}</pre>
+    {% if e.forwards %}
+    <section class="forwards" aria-label="Forwards for event {{ e.id }}">
+      <h2>Forwards</h2>
+      <table>
+        <tr><th>Rule</th><th>Attempt</th><th>Target</th><th>Result</th><th>Time</th><th>At</th></tr>
+        {% for f in e.forwards %}
+        <tr>
+          <td>{{ f.rule }}</td>
+          <td>{{ f.attempt }}</td>
+          <td class="target">{{ f.target_url }}</td>
+          {% if f.status_code is none %}
+          <td class="fwd-err">{{ f.error or "no response" }}</td>
+          {% else %}
+          <td class="{{ 'fwd-ok' if 200 <= f.status_code < 300 else 'fwd-err' }}">HTTP {{ f.status_code }}</td>
+          {% endif %}
+          <td>{{ f.elapsed_ms }} ms</td>
+          <td class="muted">{{ f.forwarded_at }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </section>
+    {% endif %}
+    <form class="replay" data-event-id="{{ e.id }}">
+      <input type="url" name="target_url" placeholder="http://localhost:3000/webhooks" required
+             aria-label="Replay target URL for event {{ e.id }}">
+      <button type="submit">Replay</button>
+      <p class="replay-result" role="status"></p>
+    </form>
+    <form class="preview" data-event-id="{{ e.id }}" aria-label="Transform preview for event {{ e.id }}">
+      <select name="rule" aria-label="Transform to preview for event {{ e.id }}">
+        <option value="">Custom mapping</option>
+        {% for name in transform_rules %}<option value="{{ name }}">Rule: {{ name }}</option>{% endfor %}
+      </select>
+      <button type="submit">Preview transform</button>
+      <textarea name="transform" spellcheck="false" aria-label="Transform mapping (JSON) for event {{ e.id }}"
+                placeholder='{"id": "@event_id", "type": "@event_type", "repo": "$.repository.full_name"}'></textarea>
+      <p class="preview-note" role="status"></p>
+      <pre class="preview-output" hidden></pre>
+    </form>
+  </details>

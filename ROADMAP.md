@@ -8,7 +8,7 @@ skip them until the tag is cleared. Work in phase order; within a phase, top to 
 
 | Dates | HookScope phases |
 |---|---|
-| Oct 12 – Oct 25 | P1 Foundations, P2 Failure explainer, P3 CLI |
+| Oct 12 – Oct 25 | PD Portfolio demo (pulled forward), P1 Foundations, P2 Failure explainer, P3 CLI |
 | Oct 26 – Nov 8 | P4 Rules and delivery, P5 Durable queue |
 | Nov 9 – Nov 22 | P6 Storage, P7 Auth and secrets, P8 Observability |
 | Nov 23 – Dec 6 | P9 More providers, P10 Packaging, docs, deploy |
@@ -16,13 +16,21 @@ skip them until the tag is cleared. Work in phase order; within a phase, top to 
 
 Finishing early is fine. Never add an item just to keep a streak.
 
+## PD Portfolio demo (4)
+A self-contained page for the owner's portfolio site (static, uploaded to S3), in `docs/demo/`.
+No backend: signatures are computed in the browser with Web Crypto.
+- [ ] PD.01 `docs/demo/` page shell matching the portfolio's look (tokens, light/dark, nav-compatible), provider picker and sample payloads for all 7 providers
+- [ ] PD.02 In-browser signing for each provider (GitHub, Stripe, Shopify, Slack, Twilio, Svix, generic), checked against the providers' published vectors in a test
+- [ ] PD.03 Verify panel: valid/invalid result, "tamper with the body" and "wrong secret" buttons, Stripe/Slack timestamp tolerance
+- [ ] PD.04 Handover: single-file build, upload notes, snippets for the portfolio's playground card and nav entry
+
 ## P1 Foundations and API quality (14)
 - [x] P1.01 `config.py`: one `Settings` object parsed from env (secrets, retention, body limit, password, rules path, db path); report all invalid values together at startup
 - [x] P1.02 Pydantic response models for events, forwards and dead letters; typed OpenAPI schemas
 - [x] P1.03 OpenAPI metadata: tags, summaries, descriptions, examples; `/docs` behind the password
 - [x] P1.04 Cursor pagination for `GET /api/events` (`before_id`; the `next` cursor is the `X-Next-Cursor` header so the body stays a list)
 - [x] P1.05 Dashboard "older events" paging on top of the cursor
-- [ ] P1.06 Event permalink page `/events/{id}` (shareable detail view)
+- [x] P1.06 Event permalink page `/events/{id}` (shareable detail view)
 - [ ] P1.07 "Copy as curl": rebuild the original request from a stored event
 - [ ] P1.08 Request-ID middleware: accept or generate `X-Request-ID`, return it, store it on the event
 - [ ] P1.09 Structured JSON logs (`HOOKSCOPE_LOG_FORMAT=json`) carrying the request id

@@ -1,0 +1,13 @@
+{% extends "layout.html" %}
+{% block title %}Event #{{ event.id if event else "not found" }} · HookScope{% endblock %}
+{% block content %}
+  <h1>HookScope</h1>
+  <p><a href="/">&larr; All events</a></p>
+  {% if event %}
+  {% set e = event %}
+  {% set expanded = true %}
+  {% include "_event.html" %}
+  {% else %}
+  <p class="filter-error" role="alert">No event with that id.</p>
+  {% endif %}
+{% endblock %}

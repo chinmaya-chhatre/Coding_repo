@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}HookScope{% endblock %}</title>
+  <style>
+    :root { --bg:#f7f7f8; --card:#fff; --text:#1b1b1f; --muted:#6b6b76; --border:#e3e3e8;
+            --ok:#1a7f37; --bad:#cf222e; --warn:#9a6700; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg:#111114; --card:#1b1b20; --text:#ececf1; --muted:#9a9aa6; --border:#2e2e36;
+              --ok:#3fb950; --bad:#f85149; --warn:#d29922; }
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; font:15px/1.5 system-ui, sans-serif; background:var(--bg); color:var(--text); }
+    main { max-width:960px; margin:0 auto; padding:24px 16px; }
+    h1 { margin:0 0 4px; font-size:24px; }
+    .muted { color:var(--muted); }
+    nav { display:flex; flex-wrap:wrap; gap:4px 12px; }
+    a { color:var(--text); }
+    nav a.active { font-weight:600; }
+    nav.pager { margin:16px 0; }
+    .filters { display:flex; flex-wrap:wrap; gap:8px; align-items:end; margin:12px 0; }
+    .filters label { display:flex; flex-direction:column; font-size:13px; color:var(--muted); gap:2px; }
+    .filters label.grow { flex:1 1 200px; }
+    .filters input, .filters select, .filters button { padding:6px 8px; font:inherit; color:var(--text);
+                     background:var(--card); border:1px solid var(--border); border-radius:6px; min-width:0; }
+    .filters button { cursor:pointer; }
+    .filter-error { color:var(--bad); }
+    details { background:var(--card); border:1px solid var(--border); border-radius:8px; margin:8px 0; }
+    summary { padding:10px 14px; cursor:pointer; display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+    .badge { font-size:12px; padding:2px 8px; border-radius:999px; border:1px solid currentColor; }
+    .valid { color:var(--ok); } .invalid, .unsigned { color:var(--bad); } .no_secret { color:var(--warn); }
+    pre { margin:0; padding:12px 14px; overflow-x:auto; border-top:1px solid var(--border); font-size:13px; }
+    .replay { display:flex; gap:8px; flex-wrap:wrap; padding:10px 14px; border-top:1px solid var(--border); }
+    .replay input { flex:1 1 240px; min-width:0; padding:6px 8px; font:inherit; color:var(--text);
+                    background:var(--bg); border:1px solid var(--border); border-radius:6px; }
+    .replay button { padding:6px 12px; font:inherit; cursor:pointer; color:var(--text);
+                     background:var(--card); border:1px solid var(--border); border-radius:6px; }
+    .replay button:disabled { opacity:.6; cursor:wait; }
+    .replay-result { flex-basis:100%; margin:0; font-size:13px; white-space:pre-wrap; word-break:break-word; }
+    .replay-result.ok { color:var(--ok); } .replay-result.err { color:var(--bad); }
+    .forwards { padding:10px 14px; border-top:1px solid var(--border); font-size:13px; overflow-x:auto; }
+    .forwards h2 { margin:0 0 6px; font-size:13px; font-weight:600; }
+    .forwards table { border-collapse:collapse; width:100%; }
+    .forwards th, .forwards td { text-align:left; padding:3px 12px 3px 0; vertical-align:top; }
+    .forwards th { color:var(--muted); font-weight:500; }
+    .forwards td.target { word-break:break-all; }
+    .fwd-ok { color:var(--ok); } .fwd-err { color:var(--bad); }
+    .dead { background:var(--card); border:1px solid var(--bad); border-radius:8px; margin:12px 0; padding:10px 14px;
+            font-size:13px; overflow-x:auto; }
+    .dead h2 { margin:0 0 6px; font-size:14px; color:var(--bad); }
+    .dead table { border-collapse:collapse; width:100%; }
+    .dead th, .dead td { text-align:left; padding:3px 12px 3px 0; vertical-align:top; }
+    .dead th { color:var(--muted); font-weight:500; }
+    .dead td.target { word-break:break-all; }
+    .dead button { padding:3px 10px; font:inherit; cursor:pointer; color:var(--text);
+                   background:var(--card); border:1px solid var(--border); border-radius:6px; }
+    .dead button:disabled { opacity:.6; cursor:wait; }
+    .dead-result { margin:0; }
+    .preview { display:flex; gap:8px; flex-wrap:wrap; padding:10px 14px; border-top:1px solid var(--border); }
+    .preview select, .preview textarea { font:inherit; color:var(--text); background:var(--bg);
+                                         border:1px solid var(--border); border-radius:6px; padding:6px 8px; }
+    .preview textarea { flex-basis:100%; min-height:5.5em; font:13px/1.4 ui-monospace, monospace; resize:vertical; }
+    .preview button { padding:6px 12px; font:inherit; cursor:pointer; color:var(--text);
+                      background:var(--card); border:1px solid var(--border); border-radius:6px; }
+    .preview button:disabled { opacity:.6; cursor:wait; }
+    .preview-note { flex-basis:100%; margin:0; font-size:13px; }
+    .preview-note.ok { color:var(--ok); } .preview-note.err { color:var(--bad); } .preview-note.warn { color:var(--warn); }
+    .preview-output { flex-basis:100%; border:1px solid var(--border); border-radius:6px; }
+  </style>
+</head>
+<body>
+<main>
+{% block content %}{% endblock %}
+</main>
+<script type="application/json" id="transform-rules">{{ transform_rules | tojson }}</script>
+<script>
+  const TARGET_KEY = "hookscope.replayTarget";
+  const remembered = (() => { try { return localStorage.getItem(TARGET_KEY) || ""; } catch { return ""; } })();
+
+  for (const form of document.querySelectorAll("form.replay")) {
+    const input = form.elements.target_url;
+    const button = form.querySelector("button");
+    const result = form.querySelector(".replay-result");
+    input.value = remembered;
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      button.disabled = true;
+      result.className = "replay-result";
+      result.textContent = "Sending…";
+      try { localStorage.setItem(TARGET_KEY, input.value); } catch {}
+      try {
+        const resp = await fetch(`/api/events/${form.dataset.eventId}/replay`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ target_url: input.value }),
+        });
+        const data = await resp.json();
+        if (resp.status === 422 || resp.status === 404) {
+          result.className = "replay-result err";
+          result.textContent = typeof data.detail === "string" ? data.detail : "Invalid request";
+        } else if (data.status_code === null) {
+          result.className = "replay-result err";
+          result.textContent = `Could not reach target (${data.elapsed_ms} ms): ${data.error}`;
+        } else {
+          result.className = `replay-result ${data.ok ? "ok" : "err"}`;
+          result.textContent = `HTTP ${data.status_code} in ${data.elapsed_ms} ms` +
+            (data.response_body ? `\n${data.response_body}` : "");
+        }
+      } catch (err) {
+        result.className = "replay-result err";
+        result.textContent = `Replay failed: ${err}`;
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
+
+  for (const button of document.querySelectorAll(".dead button.resend")) {
+    const row = button.closest("tr");
+    const result = row.querySelector(".dead-result");
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      result.textContent = " Sending…";
+      try {
+        const resp = await fetch(
+          `/api/events/${row.dataset.eventId}/forwards/${encodeURIComponent(row.dataset.rule)}/resend`,
+          { method: "POST" });
+        const data = await resp.json();
+        if (resp.ok && data.ok) {
+          location.reload();
+          return;
+        }
+        result.className = "dead-result fwd-err";
+        result.textContent = typeof data.detail === "string" ? ` ${data.detail}`
+          : data.status_code === null ? ` No response: ${data.error}` : ` HTTP ${data.status_code}`;
+      } catch (err) {
+        result.className = "dead-result fwd-err";
+        result.textContent = ` Re-send failed: ${err}`;
+      }
+      button.disabled = false;
+    });
+  }
+
+  const RULE_TRANSFORMS = JSON.parse(document.getElementById("transform-rules").textContent);
+  const asJson = (value) => JSON.stringify(value, null, 2);
+
+  for (const form of document.querySelectorAll("form.preview")) {
+    const select = form.elements.rule;
+    const mapping = form.elements.transform;
+    const button = form.querySelector("button");
+    const note = form.querySelector(".preview-note");
+    const output = form.querySelector(".preview-output");
+    const show = (kind, text, doc) => {
+      note.className = `preview-note ${kind}`;
+      note.textContent = text;
+      output.hidden = doc === undefined;
+      output.textContent = doc === undefined ? "" : asJson(doc);
+    };
+
+    // Picking a rule shows its mapping; editing it turns the preview into an ad-hoc one.
+    select.addEventListener("change", () => {
+      if (select.value) mapping.value = asJson(RULE_TRANSFORMS[select.value]);
+    });
+    mapping.addEventListener("input", () => {
+      if (select.value && mapping.value !== asJson(RULE_TRANSFORMS[select.value])) select.value = "";
+    });
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      let request;
+      if (select.value) {
+        request = { rule: select.value };
+      } else {
+        try {
+          request = { transform: JSON.parse(mapping.value) };
+        } catch (err) {
+          show("err", `Mapping is not valid JSON: ${err.message}`);
+          return;
+        }
+      }
+      button.disabled = true;
+      show("", "Previewing…");
+      try {
+        const resp = await fetch(`/api/events/${form.dataset.eventId}/transform-preview`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(request),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          show("err", typeof data.detail === "string" ? data.detail : "Invalid mapping");
+        } else if (data.matches === false) {
+          show("warn", `Rule '${data.rule}' would not forward this event (its filters don't match); output if it did:`, data.output);
+        } else if (data.matches) {
+          show("ok", `Rule '${data.rule}' would forward this document:`, data.output);
+        } else {
+          show("ok", "Output (nothing is sent):", data.output);
+        }
+      } catch (err) {
+        show("err", `Preview failed: ${err}`);
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
+</script>
+</body>
+</html>

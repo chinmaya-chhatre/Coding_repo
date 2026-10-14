@@ -27,7 +27,7 @@ a replayed request. HookScope makes each of those visible.
     signatures for secret rotation)
   - Generic `X-Signature`
 - Rejected deliveries return `401` **but are still stored**, so you can see why they failed
-- Web dashboard with per-source tabs, text search, date-range and signature-status filters, pretty-printed JSON and one-click replay, with "Older events" paging through the full history
+- Web dashboard with per-source tabs, text search, date-range and signature-status filters, pretty-printed JSON and one-click replay, with "Older events" paging through the full history and a shareable page per event (`/events/{id}`)
 - Optional password protection for the dashboard, API and metrics (providers stay signature-only)
 - Hardening for a public `/hooks/*`: request bodies are size-capped (`413`, default 5 MiB) and
   credential headers (`Authorization`, `Cookie`, ...) are redacted, never stored or forwarded

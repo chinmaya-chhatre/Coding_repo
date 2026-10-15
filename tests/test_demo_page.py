@@ -61,7 +61,9 @@ def test_page_is_self_contained_apart_from_fonts():
     external = re.findall(r'(?:src|href)="(https?://[^"]+)"', HTML)
     allowed = ("https://fonts.googleapis.com", "https://github.com/chinmaya-chhatre/")
     assert all(url.startswith(allowed) for url in external), external
-    assert "<script src=" not in HTML  # no third-party scripts
+    assert re.findall(r'<script src="([^"]+)"', HTML) == [
+        "signing.js"
+    ]  # one local script, nothing third-party
 
 
 def test_page_has_the_basics_for_embedding():

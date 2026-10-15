@@ -81,6 +81,7 @@ pre { font-family:var(--font-mono); font-size:12.5px; line-height:1.55; backgrou
     that verifies, stores, forwards and replays these deliveries.</p>
 </main>
 
+<script src="signing.js"></script>
 <script type="application/json" id="providers">
 [
   {
@@ -169,32 +170,51 @@ pre { font-family:var(--font-mono); font-size:12.5px; line-height:1.55; backgrou
     try { return JSON.stringify(JSON.parse(p.body), null, 2); } catch (e) { return p.body; }
   }
 
-  function headerLines(p) {
-    var lines = [];
-    lines.push({ name: 'Content-Type', value: p.contentType, sig: false });
+  var renderToken = 0;
+
+  function signOptions(p) {
+    return { body: p.body, secret: p.secret, url: p.url || '', msgId: p.msgId || 'msg_demo_0001', timestamp: Math.floor(Date.now() / 1000) };
+  }
+
+  function headerLines(p, signed) {
+    var lines = [{ name: 'Content-Type', value: p.contentType, sig: false }];
     Object.keys(p.extraHeaders).forEach(function (k) { lines.push({ name: k, value: p.extraHeaders[k], sig: false }); });
-    p.signatureHeaders.forEach(function (k) { lines.push({ name: k, value: '(computed in the next step)', sig: true }); });
+    Object.keys(signed.headers).forEach(function (k) { lines.push({ name: k, value: signed.headers[k], sig: true }); });
     return lines;
   }
 
   function render() {
     var p = PROVIDERS.filter(function (x) { return x.id === current; })[0];
+    var token = ++renderToken;
+    window.HookScopeSigning.sign(p.id, signOptions(p)).then(function (signed) {
+      if (token !== renderToken) return; // a newer tab click won the race
+      draw(p, signed);
+    }, function (err) {
+      panel.textContent = 'Signing failed: ' + err.message + '. This page needs a browser with Web Crypto (any current browser, served over https or from a file).';
+    });
+  }
+
+  function draw(p, signed) {
     panel.textContent = '';
     panel.appendChild(section('How ' + p.label + ' signs', [el('p', { 'class': 'how', html: p.how })]));
 
     var reqLine = el('p', { 'class': 'req-line' });
     reqLine.appendChild(el('code', { text: p.method + ' ' + (p.url || p.path) }));
     var headers = el('pre');
-    headerLines(p).forEach(function (h, i) {
+    headerLines(p, signed).forEach(function (h, i) {
       if (i) headers.appendChild(document.createTextNode('\n'));
       headers.appendChild(el('span', { 'class': h.sig ? 'hdr-sig' : '', text: h.name + ': ' + h.value }));
     });
     panel.appendChild(section('Example request', [
       reqLine,
-      el('p', { 'class': 'label', text: 'Headers' }), headers,
+      el('p', { 'class': 'label', text: 'Headers (signature in green)' }), headers,
       el('p', { 'class': 'label', text: 'Body' }), el('pre', { text: prettyBody(p) })
     ]));
-    document.dispatchEvent(new CustomEvent('provider-change', { detail: p }));
+    panel.appendChild(section('What gets signed', [
+      el('p', { 'class': 'how', text: 'The signature is an HMAC of exactly this string, keyed with the secret ' + p.secret + ':' }),
+      el('pre', { text: signed.signedString })
+    ]));
+    document.dispatchEvent(new CustomEvent('provider-change', { detail: { provider: p, signed: signed } }));
   }
 
   PROVIDERS.forEach(function (p) {

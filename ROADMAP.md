@@ -20,7 +20,7 @@ Finishing early is fine. Never add an item just to keep a streak.
 A self-contained page for the owner's portfolio site (static, uploaded to S3), in `docs/demo/`.
 No backend: signatures are computed in the browser with Web Crypto.
 - [x] PD.01 `docs/demo/` page shell matching the portfolio's look (tokens, light/dark, nav-compatible), provider picker and sample payloads for all 7 providers
-- [ ] PD.02 In-browser signing for each provider (GitHub, Stripe, Shopify, Slack, Twilio, Svix, generic), checked against the providers' published vectors in a test
+- [x] PD.02 In-browser signing for each provider (GitHub, Stripe, Shopify, Slack, Twilio, Svix, generic), checked against the providers' published vectors in a test
 - [ ] PD.03 Verify panel: valid/invalid result, "tamper with the body" and "wrong secret" buttons, Stripe/Slack timestamp tolerance
 - [ ] PD.04 Handover: single-file build, upload notes, snippets for the portfolio's playground card and nav entry
 

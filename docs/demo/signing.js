@@ -5,6 +5,9 @@
  * Each provider mirrors its documented scheme; tests check the output against the providers'
  * published examples and against HookScope's own verifiers.
  *
+ * verify(provider, { body, headers, secret, url, now }) resolves to { status, reason } with the same
+ * statuses and reasons as HookScope's verifiers, so the demo's verdicts are the server's verdicts.
+ *
  * Works in browsers and in Node 18+ (module.exports), so the same file is tested and shipped.
  */
 (function (root) {
@@ -112,7 +115,105 @@
     return build(o);
   }
 
-  var api = { sign: sign, providers: Object.keys(PROVIDERS), parseForm: parseForm, twilioString: twilioString };
+  var TOLERANCE_SECONDS = 300;
+
+  function header(headers, name) {
+    var wanted = name.toLowerCase();
+    for (var key in headers) if (key.toLowerCase() === wanted) return headers[key];
+    return undefined;
+  }
+  function ok() { return { status: 'valid', reason: '' }; }
+  function bad(reason) { return { status: 'invalid', reason: reason }; }
+  function unsigned(name) { return { status: 'unsigned', reason: 'missing ' + name + ' header' }; }
+  function outsideTolerance(timestamp, now) { return Math.abs(now - Number(timestamp)) > TOLERANCE_SECONDS; }
+  var REPLAY = 'timestamp outside tolerance (possible replay)';
+
+  var VERIFIERS = {
+    github: function (o) {
+      var received = header(o.headers, 'X-Hub-Signature-256');
+      if (!received) return Promise.resolve(unsigned('X-Hub-Signature-256'));
+      return sign('github', o).then(function (r) {
+        return received === r.headers['X-Hub-Signature-256'] ? ok() : bad('signature mismatch');
+      });
+    },
+    stripe: function (o) {
+      var received = header(o.headers, 'Stripe-Signature');
+      if (!received) return Promise.resolve(unsigned('Stripe-Signature'));
+      var t = null, sigs = [];
+      received.split(',').forEach(function (part) {
+        var i = part.indexOf('='), k = part.slice(0, i).trim(), v = part.slice(i + 1);
+        if (k === 't') t = v; else if (k === 'v1') sigs.push(v);
+      });
+      if (!t || !/^\d+$/.test(t) || !sigs.length) return Promise.resolve(bad('expected format t=<ts>,v1=<hex>'));
+      if (outsideTolerance(t, o.now)) return Promise.resolve(bad(REPLAY));
+      return sign('stripe', Object.assign({}, o, { timestamp: t })).then(function (r) {
+        var expected = r.headers['Stripe-Signature'].split('v1=')[1];
+        return sigs.indexOf(expected) >= 0 ? ok() : bad('signature mismatch');
+      });
+    },
+    shopify: function (o) {
+      var received = header(o.headers, 'X-Shopify-Hmac-Sha256');
+      if (!received) return Promise.resolve(unsigned('X-Shopify-Hmac-Sha256'));
+      return sign('shopify', o).then(function (r) {
+        return received === r.headers['X-Shopify-Hmac-Sha256'] ? ok() : bad('signature mismatch');
+      });
+    },
+    slack: function (o) {
+      var received = header(o.headers, 'X-Slack-Signature');
+      var t = header(o.headers, 'X-Slack-Request-Timestamp');
+      if (!received) return Promise.resolve(unsigned('X-Slack-Signature'));
+      if (received.indexOf('v0=') !== 0) return Promise.resolve(bad('expected format v0=<hex>'));
+      if (!t || !/^\d+$/.test(t)) return Promise.resolve(bad('missing or malformed X-Slack-Request-Timestamp header'));
+      if (outsideTolerance(t, o.now)) return Promise.resolve(bad(REPLAY));
+      return sign('slack', Object.assign({}, o, { timestamp: t })).then(function (r) {
+        return received === r.headers['X-Slack-Signature'] ? ok() : bad('signature mismatch');
+      });
+    },
+    twilio: function (o) {
+      var received = header(o.headers, 'X-Twilio-Signature');
+      if (!received) return Promise.resolve(unsigned('X-Twilio-Signature'));
+      if (!o.url) return Promise.resolve(bad('request URL unknown'));
+      return sign('twilio', o).then(function (r) {
+        return received === r.headers['X-Twilio-Signature']
+          ? ok() : bad('signature mismatch (check the public URL Twilio calls)');
+      });
+    },
+    svix: function (o) {
+      var prefix = header(o.headers, 'svix-signature') ? 'svix' : 'webhook';
+      var received = header(o.headers, prefix + '-signature');
+      var id = header(o.headers, prefix + '-id'), t = header(o.headers, prefix + '-timestamp');
+      if (!received) return Promise.resolve(unsigned('svix-signature'));
+      if (!id || !t || !/^\d+$/.test(t)) {
+        return Promise.resolve(bad('missing or malformed ' + prefix + '-id / ' + prefix + '-timestamp header'));
+      }
+      try { fromBase64(o.secret.replace(/^whsec_/, '')); } catch (e) {
+        return Promise.resolve(bad('configured secret is not a valid whsec_ key'));
+      }
+      if (outsideTolerance(t, o.now)) return Promise.resolve(bad(REPLAY));
+      return sign('svix', Object.assign({}, o, { timestamp: t, msgId: id })).then(function (r) {
+        var expected = r.headers['svix-signature'].slice(3);
+        var candidates = received.split(/\s+/).map(function (part) { return part.split(','); })
+          .filter(function (pair) { return pair[0] === 'v1'; }).map(function (pair) { return pair[1]; });
+        return candidates.indexOf(expected) >= 0 ? ok() : bad('signature mismatch');
+      });
+    },
+    generic: function (o) {
+      var received = header(o.headers, 'X-Signature');
+      if (!received) return Promise.resolve(unsigned('X-Signature'));
+      return sign('generic', o).then(function (r) {
+        return received === r.headers['X-Signature'] ? ok() : bad('signature mismatch');
+      });
+    }
+  };
+
+  /** Check a received request the way HookScope would. `now` (unix seconds) defaults to the current time. */
+  function verify(provider, options) {
+    var check = VERIFIERS[provider];
+    if (!check) return Promise.reject(new Error('unknown provider: ' + provider));
+    return check(Object.assign({ now: now(), url: '', headers: {} }, options));
+  }
+
+  var api = { sign: sign, verify: verify, TOLERANCE_SECONDS: TOLERANCE_SECONDS, providers: Object.keys(PROVIDERS), parseForm: parseForm, twilioString: twilioString };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.HookScopeSigning = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -143,3 +143,90 @@ def test_changing_a_byte_makes_hookscope_reject_the_signature():
             url=provider.get("url", ""),
         )
         assert result.status == "invalid", provider["id"]
+
+
+# The demo's verdicts must be HookScope's verdicts: run the same scenarios through both.
+NOW = 1_800_000_000
+TIMED = {"stripe", "slack", "svix"}
+
+
+def _scenarios(provider: dict) -> list[dict]:
+    pid, body, secret, url = provider["id"], provider["body"], provider["secret"], provider.get("url", "")
+    wrong = "whsec_" + "YS1kaWZmZXJlbnQta2V5" if pid == "svix" else secret + "x"
+    cases = [
+        {"name": "valid", "sent_at": NOW, "body": body, "secret": secret, "url": url},
+        {"name": "tampered", "sent_at": NOW, "body": "x" + body, "secret": secret, "url": url},
+        {"name": "wrong secret", "sent_at": NOW, "body": body, "secret": wrong, "url": url},
+    ]
+    if pid in TIMED:
+        for minutes in (4, 6, 60):
+            cases.append(
+                {
+                    "name": f"{minutes} min old",
+                    "sent_at": NOW - minutes * 60,
+                    "body": body,
+                    "secret": secret,
+                    "url": url,
+                }
+            )
+    if pid == "twilio":
+        cases.append(
+            {
+                "name": "proxy",
+                "sent_at": NOW,
+                "body": body,
+                "secret": secret,
+                "url": url.replace("https:", "http:"),
+            }
+        )
+    return cases
+
+
+def _js_verdicts(provider: dict, cases: list[dict]) -> list[dict]:
+    script = """
+    const s = require(process.argv[1]);
+    const { provider, cases } = JSON.parse(process.argv[2]);
+    Promise.all(cases.map(async c => {
+      const signed = await s.sign(provider.id, { body: provider.body, secret: provider.secret,
+                                                 url: provider.url || '', timestamp: c.sent_at });
+      return s.verify(provider.id, { body: c.body, headers: signed.headers, secret: c.secret,
+                                     url: c.url, now: c.now });
+    })).then(r => console.log(JSON.stringify(r)));
+    """
+    payload = json.dumps({"provider": provider, "cases": [{**c, "now": NOW} for c in cases]})
+    out = subprocess.run(
+        ["node", "-e", script, str(DEMO / "signing.js"), payload], capture_output=True, text=True, check=True
+    )
+    return json.loads(out.stdout)
+
+
+def _python_verdict(provider: dict, case: dict) -> dict:
+    signed = sign_one(
+        provider["id"],
+        body=provider["body"],
+        secret=provider["secret"],
+        url=provider.get("url", ""),
+        timestamp=case["sent_at"],
+    )
+    kwargs = {"now": NOW} if provider["id"] in TIMED else {}
+    func = signatures.VERIFIERS[provider["id"]]
+    args = (case["body"].encode(), signed["headers"], case["secret"])
+    result = func(*args, case["url"]) if provider["id"] == "twilio" else func(*args, **kwargs)
+    return {"status": result.status, "reason": result.reason}
+
+
+@pytest.mark.parametrize("provider", _providers(), ids=lambda p: p["id"])
+def test_demo_verdicts_match_hookscope(provider):
+    cases = _scenarios(provider)
+    for case, js in zip(cases, _js_verdicts(provider, cases), strict=True):
+        assert js == _python_verdict(provider, case), f"{provider['id']}: {case['name']}"
+
+
+def test_the_scenarios_cover_both_outcomes():
+    provider = next(p for p in _providers() if p["id"] == "stripe")
+    cases = _scenarios(provider)
+    verdicts = {c["name"]: v["status"] for c, v in zip(cases, _js_verdicts(provider, cases), strict=True)}
+    assert verdicts["valid"] == "valid"
+    assert verdicts["4 min old"] == "valid"
+    assert verdicts["6 min old"] == "invalid"
+    assert verdicts["tampered"] == "invalid"

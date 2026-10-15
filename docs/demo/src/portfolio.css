@@ -1,0 +1,10 @@
+/* The portfolio's /css/style.css supplies the tokens and the page chrome; these are the few the lab adds. */
+#hs-lab { --bad:#B42318; --bad-pale:#FEE4E2; --ok:var(--accent); --font-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+[data-theme="dark"] #hs-lab { --bad:#F97066; --bad-pale:rgba(249,112,102,0.12); }
+.playground-page { max-width: 900px; margin: 0 auto; padding: 56px 32px 80px; }
+.playground-back { display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--text-3);margin-bottom:32px;text-decoration:none;transition:color 0.2s; }
+.playground-back:hover { color:var(--accent); }
+.playground-eyebrow { font-size:11px;font-weight:600;letter-spacing:1.4px;text-transform:uppercase;color:var(--accent);margin-bottom:10px; }
+.playground-title { font-family:var(--font-serif);font-size:38px;color:var(--text-1);line-height:1.15;letter-spacing:-0.4px;margin-bottom:16px; }
+.playground-sub { font-size:16px;color:var(--text-2);line-height:1.7;max-width:600px;margin-bottom:40px; }
+@media(max-width:640px){ .playground-title{ font-size:30px; } .playground-page{ padding:36px 20px 60px; } }

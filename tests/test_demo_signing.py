@@ -14,8 +14,7 @@ pytestmark = pytest.mark.skipif(
     shutil.which("node") is None, reason="Node.js is needed to run the demo's signing code"
 )
 
-DEMO = Path(__file__).parent.parent / "docs" / "demo"
-PAGE = (DEMO / "index.html").read_text(encoding="utf-8")
+DEMO = Path(__file__).parent.parent / "docs" / "demo" / "src"
 
 
 def sign_all(jobs: list[dict]) -> list[dict]:
@@ -99,10 +98,7 @@ def test_unknown_provider_is_rejected():
 
 # Every provider card on the page, signed by signing.js, must pass HookScope's real verifier.
 def _providers() -> list[dict]:
-    import re
-
-    block = re.search(r'<script type="application/json" id="providers">(.*?)</script>', PAGE, re.S).group(1)
-    return json.loads(block)
+    return json.loads((DEMO / "providers.json").read_text(encoding="utf-8"))
 
 
 def test_every_demo_provider_verifies_in_hookscope():

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HookScope signature lab</title>
+<meta name="description" content="See how GitHub, Stripe, Shopify, Slack, Twilio, Svix and generic HMAC webhooks are signed, and what happens when a payload is tampered with. Runs entirely in your browser.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&display=swap">
+<style>
+{{STANDALONE_CSS}}
+{{LAB_CSS}}
+</style>
+</head>
+<body>
+<main class="page">
+  <div class="top">
+    <a class="back" href="https://github.com/chinmaya-chhatre/Coding_repo">&larr; HookScope on GitHub</a>
+    <button class="theme" id="theme" aria-label="Toggle dark mode">&#x263D;</button>
+  </div>
+  <p class="eyebrow">Webhooks &middot; Interactive</p>
+  <h1>Webhook signature lab</h1>
+  <p class="lede">Every provider signs its webhooks differently, and most &ldquo;signature mismatch&rdquo; tickets come down to one
+    detail: the exact bytes, the exact URL or the clock. Pick a provider to see a real-shaped request and how it is signed.
+    This runs entirely in your browser; nothing is sent anywhere.</p>
+  <div id="hs-lab">
+{{CONTENT}}
+  </div>
+</main>
+<script type="application/json" id="providers">
+{{PROVIDERS}}
+</script>
+<script>
+{{SIGNING_JS}}
+</script>
+<script>
+{{LAB_JS}}
+</script>
+<script>
+{{STANDALONE_JS}}
+</script>
+</body>
+</html>

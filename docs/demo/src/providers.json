@@ -1,0 +1,110 @@
+[
+  {
+    "id": "github",
+    "label": "GitHub",
+    "method": "POST",
+    "path": "/hooks/github",
+    "contentType": "application/json",
+    "secret": "It's a Secret to Everybody",
+    "signatureHeaders": [
+      "X-Hub-Signature-256"
+    ],
+    "extraHeaders": {
+      "X-GitHub-Event": "pull_request",
+      "X-GitHub-Delivery": "0b1c3d4e-0000-4000-8000-000000000001"
+    },
+    "how": "<code>X-Hub-Signature-256: sha256=&lt;hex&gt;</code>, the HMAC-SHA256 of the raw body, keyed with the webhook secret.",
+    "body": "{\"action\":\"opened\",\"number\":42,\"pull_request\":{\"title\":\"Fix retry backoff\",\"user\":{\"login\":\"octocat\"}},\"repository\":{\"full_name\":\"acme/billing-service\"}}"
+  },
+  {
+    "id": "stripe",
+    "label": "Stripe",
+    "method": "POST",
+    "path": "/hooks/stripe",
+    "contentType": "application/json",
+    "secret": "whsec_demo_stripe_secret",
+    "signatureHeaders": [
+      "Stripe-Signature"
+    ],
+    "extraHeaders": {},
+    "how": "<code>Stripe-Signature: t=&lt;unix time&gt;,v1=&lt;hex&gt;</code>, the HMAC-SHA256 of <code>&quot;&lt;t&gt;.&lt;body&gt;&quot;</code>. The timestamp must be within five minutes of now, which stops replays.",
+    "body": "{\"id\":\"evt_1QxAcmePaid\",\"object\":\"event\",\"type\":\"invoice.paid\",\"data\":{\"object\":{\"id\":\"in_1QxAcmeInvoice\",\"customer_email\":\"billing@acme.example\",\"amount_paid\":125000,\"currency\":\"usd\",\"status\":\"paid\"}}}"
+  },
+  {
+    "id": "shopify",
+    "label": "Shopify",
+    "method": "POST",
+    "path": "/hooks/shopify",
+    "contentType": "application/json",
+    "secret": "demo-shopify-secret",
+    "signatureHeaders": [
+      "X-Shopify-Hmac-Sha256"
+    ],
+    "extraHeaders": {
+      "X-Shopify-Topic": "orders/create",
+      "X-Shopify-Shop-Domain": "example.myshopify.com"
+    },
+    "how": "<code>X-Shopify-Hmac-Sha256: &lt;base64&gt;</code>, the HMAC-SHA256 of the raw body, base64-encoded (not hex).",
+    "body": "{\"id\":820982911946154508,\"name\":\"#1001\",\"currency\":\"USD\",\"total_price\":\"199.00\",\"line_items\":[{\"sku\":\"TEE-BLK-M\",\"quantity\":2,\"price\":\"99.50\"}]}"
+  },
+  {
+    "id": "slack",
+    "label": "Slack",
+    "method": "POST",
+    "path": "/hooks/slack",
+    "contentType": "application/x-www-form-urlencoded",
+    "secret": "demo-slack-signing-secret",
+    "signatureHeaders": [
+      "X-Slack-Signature",
+      "X-Slack-Request-Timestamp"
+    ],
+    "extraHeaders": {},
+    "how": "<code>X-Slack-Signature: v0=&lt;hex&gt;</code>, the HMAC-SHA256 of <code>&quot;v0:&lt;timestamp&gt;:&lt;body&gt;&quot;</code>, with the timestamp in <code>X-Slack-Request-Timestamp</code> (five-minute window).",
+    "body": "team_id=T0123&channel_id=C0123&user_name=jane&command=%2Fticket&text=printer+on+fire&response_url=https%3A%2F%2Fhooks.slack.com%2Fcommands%2FT0%2F1%2Fxyz&trigger_id=1234.5678.abcdef"
+  },
+  {
+    "id": "twilio",
+    "label": "Twilio",
+    "method": "POST",
+    "path": "/hooks/twilio",
+    "contentType": "application/x-www-form-urlencoded",
+    "url": "https://example.com/hooks/twilio",
+    "secret": "demo-twilio-auth-token",
+    "signatureHeaders": [
+      "X-Twilio-Signature"
+    ],
+    "extraHeaders": {},
+    "how": "<code>X-Twilio-Signature: &lt;base64&gt;</code>, an HMAC-SHA1 of the <em>full public URL</em> followed by every form parameter name and value, sorted by name. Behind a proxy that rewrites the URL, verification fails.",
+    "body": "MessageSid=SM00000000000000000000000000000001&From=%2B16175550123&To=%2B18005551212&Body=My+order+never+arrived&NumMedia=0"
+  },
+  {
+    "id": "svix",
+    "label": "Svix",
+    "method": "POST",
+    "path": "/hooks/svix",
+    "contentType": "application/json",
+    "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+    "signatureHeaders": [
+      "svix-signature",
+      "svix-id",
+      "svix-timestamp"
+    ],
+    "extraHeaders": {},
+    "how": "<code>svix-signature: v1,&lt;base64&gt;</code>, the HMAC-SHA256 of <code>&quot;&lt;svix-id&gt;.&lt;svix-timestamp&gt;.&lt;body&gt;&quot;</code>, keyed with the base64 part of the <code>whsec_</code> secret. Standard Webhooks senders use <code>webhook-*</code> header names.",
+    "body": "{\"type\":\"invoice.created\",\"timestamp\":\"2026-10-14T13:00:00Z\",\"data\":{\"id\":\"inv_123\",\"total\":4200}}"
+  },
+  {
+    "id": "generic",
+    "label": "Generic HMAC",
+    "method": "POST",
+    "path": "/hooks/generic",
+    "contentType": "application/json",
+    "secret": "demo-generic-secret",
+    "signatureHeaders": [
+      "X-Signature"
+    ],
+    "extraHeaders": {},
+    "how": "<code>X-Signature: &lt;hex&gt;</code>, the HMAC-SHA256 of the raw body. For senders that follow no standard.",
+    "body": "{\"event\":\"ping\",\"id\":\"evt_generic_1\"}"
+  }
+]

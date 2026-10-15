@@ -1,0 +1,32 @@
+#hs-lab .tabs { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:20px; }
+#hs-lab .tab { font:inherit; font-size:13px; font-weight:500; padding:8px 14px; border-radius:var(--radius-full); cursor:pointer;
+       background:var(--surface); color:var(--text-2); border:1px solid var(--border-mid); transition:border-color .2s,color .2s,background .2s; }
+#hs-lab .tab:hover { border-color:var(--accent); color:var(--accent); }
+#hs-lab .tab[aria-selected="true"] { background:var(--accent-light); color:var(--accent); border-color:var(--accent); }
+#hs-lab .card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:24px; margin-bottom:16px; box-shadow:var(--shadow-sm); }
+#hs-lab .card h2 { font-size:11px; font-weight:700; letter-spacing:1.2px; text-transform:uppercase; color:var(--accent); margin-bottom:12px; }
+#hs-lab .how { font-size:14px; line-height:1.7; color:var(--text-2); }
+#hs-lab .how code, #hs-lab .req-line code { font-family:var(--font-mono); font-size:13px; background:var(--surface-2); padding:2px 6px; border-radius:var(--radius-sm); }
+#hs-lab .req-line { font-family:var(--font-mono); font-size:13px; color:var(--text-1); margin-bottom:10px; word-break:break-all; }
+#hs-lab pre { font-family:var(--font-mono); font-size:12.5px; line-height:1.55; background:var(--surface-2); color:var(--text-1);
+      padding:14px 16px; border-radius:var(--radius-md); overflow-x:auto; white-space:pre-wrap; word-break:break-all; }
+#hs-lab .label { font-size:12px; color:var(--text-3); margin:14px 0 6px; font-weight:500; }
+#hs-lab .label:first-of-type { margin-top:0; }
+#hs-lab .hdr-sig { color:var(--accent); font-weight:600; }
+#hs-lab .controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px; }
+#hs-lab .controls label { font-size:12px; color:var(--text-3); font-weight:500; display:flex; flex-direction:column; gap:4px; flex:1 1 220px; }
+#hs-lab .controls input, #hs-lab .controls select, #hs-lab .lab-body { font:inherit; font-size:13px; padding:8px 10px; border-radius:var(--radius-md);
+       border:1px solid var(--border-mid); background:var(--bg); color:var(--text-1); width:100%; }
+#hs-lab .lab-body { font-family:var(--font-mono); font-size:12.5px; min-height:96px; resize:vertical; }
+#hs-lab .btn { font:inherit; font-size:13px; font-weight:500; padding:8px 12px; border-radius:var(--radius-md); cursor:pointer;
+       background:var(--surface); color:var(--text-2); border:1px solid var(--border-mid); transition:border-color .2s,color .2s; }
+#hs-lab .btn:hover { border-color:var(--accent); color:var(--accent); }
+#hs-lab .verdict { display:flex; align-items:baseline; flex-wrap:wrap; gap:10px; margin-top:14px; padding:14px 16px; border-radius:var(--radius-md); }
+#hs-lab .verdict.valid { background:var(--accent-pale); border:1px solid var(--accent-light); }
+#hs-lab .verdict.rejected { background:var(--bad-pale); border:1px solid var(--bad); }
+#hs-lab .verdict-status { font-weight:700; font-size:15px; letter-spacing:.3px; text-transform:uppercase; }
+#hs-lab .verdict.valid .verdict-status { color:var(--ok); }
+#hs-lab .verdict.rejected .verdict-status { color:var(--bad); }
+#hs-lab .verdict-reason { font-size:13px; color:var(--text-2); }
+#hs-lab .foot { margin-top:32px; font-size:13px; color:var(--text-3); line-height:1.7; }
+#hs-lab .how + .controls { margin-top:12px; }

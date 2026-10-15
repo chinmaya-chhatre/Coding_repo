@@ -1,0 +1,61 @@
+<!DOCTYPE html><html lang="en" data-theme="light"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Webhook Signature Lab | Chinmaya Chhatre</title>
+<meta name="description" content="Interactive demo of how GitHub, Stripe, Shopify, Slack, Twilio and Svix webhooks are signed, and why signatures fail. Built on HookScope, my open-source webhook receiver. Runs in your browser.">
+<link rel="canonical" href="https://www.chinmaya-chhatre.com/playground/hookscope-demo.html">
+<meta property="og:site_name" content="Chinmaya Chhatre">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Webhook Signature Lab | Chinmaya Chhatre">
+<meta property="og:description" content="Interactive demo of how GitHub, Stripe, Shopify, Slack, Twilio and Svix webhooks are signed, and why signatures fail. Runs in your browser.">
+<meta property="og:url" content="https://www.chinmaya-chhatre.com/playground/hookscope-demo.html">
+<meta property="og:image" content="https://www.chinmaya-chhatre.com/assets/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="/css/style.css">
+  <script src="/js/analytics.js"></script>
+<style>
+{{PORTFOLIO_CSS}}
+{{LAB_CSS}}
+</style>
+</head><body>
+<div id="drawer-overlay"></div>
+<aside id="drawer" aria-label="Site navigation" data-nav="auto"></aside>
+<noscript><p style="padding:12px 24px;"><a href="/">Back to the homepage</a></p></noscript>
+<nav id="site-nav" aria-label="Main navigation"><button class="nav-hamburger" id="nav-hamburger" aria-label="Open menu"><span></span><span></span><span></span></button><span class="nav-brand">Chinmaya Chhatre</span><div class="nav-actions"><button class="nav-theme" id="theme-toggle" aria-label="Toggle dark mode">&#x263D;</button><a class="nav-book" href="#" data-booking="true" target="_blank">&#x1F4C5; <span>Book a call</span></a></div></nav>
+
+<div class="playground-page">
+  <a class="playground-back" href="playground.html">&#x2190; Back to the playground</a>
+  <p class="playground-eyebrow">Integrations &middot; Interactive Tools</p>
+  <h1 class="playground-title">Webhook signature lab</h1>
+  <p class="playground-sub">Most &ldquo;the webhook fails&rdquo; tickets come down to a signature detail: the exact bytes, the exact URL or the clock. This is the verification logic from HookScope, the webhook receiver I built, running in your browser. Pick a provider, then try to break it.</p>
+
+  <div id="hs-lab">
+{{CONTENT}}
+  </div>
+
+  <div style="margin-top:40px;padding-top:36px;border-top:1px solid var(--border);">
+    <div style="display:flex;flex-wrap:wrap;gap:10px;">
+      <a class="footer-link" href="https://github.com/chinmaya-chhatre/Coding_repo" target="_blank" rel="noopener">&#x1F5A5; HookScope on GitHub</a>
+      <a class="footer-link" href="playground.html">&#x1F6DD; More playground tools</a>
+      <a class="footer-link" href="../blogs/index-tech.html">&#x1F527; Tech Blog</a>
+    </div>
+  </div>
+</div>
+
+<footer id="site-footer"><div class="footer-left"><p class="footer-name">Chinmaya Chhatre</p><p>Solutions Engineer &middot; Charlotte, NC &middot; Open to relocation</p>
+    <p><a href="/privacy.html" style="color:inherit;text-decoration:underline;">Privacy</a></p></div><div class="footer-links"><a class="footer-link" href="https://github.com/chinmaya-chhatre" target="_blank">&#x1F5A5; GitHub</a><a class="footer-link" href="https://www.linkedin.com/in/chinmaya-chhatre" target="_blank">&#x1F517; LinkedIn</a><a class="footer-link" href="../documents/resume.pdf" target="_blank">&#x1F4C4; Resume</a><a class="footer-link" href="mailto:chinmaya.chhatre@gmail.com">&#x2709;&#xFE0F; Email</a></div></footer>
+<div class="rating-star-wrapper"><div class="rating-star-label">Rate my site!</div><button class="rating-star-button" id="open-rating-modal" aria-label="Rate this website">&#x2605;</button></div>
+<div class="modal-backdrop" id="rating-modal"><div class="modal-box"><button class="modal-close" id="rating-modal-close" aria-label="Close">&#x2715;</button><h2 class="modal-title">Rate this site</h2><div class="star-group"><input type="radio" name="stars" value="5" id="s5"><label for="s5">&#x2605;</label><input type="radio" name="stars" value="4" id="s4"><label for="s4">&#x2605;</label><input type="radio" name="stars" value="3" id="s3"><label for="s3">&#x2605;</label><input type="radio" name="stars" value="2" id="s2"><label for="s2">&#x2605;</label><input type="radio" name="stars" value="1" id="s1"><label for="s1">&#x2605;</label></div><textarea class="modal-textarea" id="rating-feedback" placeholder="Any feedback? (optional)"></textarea><button class="modal-submit" id="rating-submit">Submit</button></div></div>
+
+<script type="application/json" id="providers">
+{{PROVIDERS}}
+</script>
+<script>
+{{SIGNING_JS}}
+</script>
+<script>
+{{LAB_JS}}
+</script>
+<script src="/js/nav.js?v=20261011"></script>
+</body></html>

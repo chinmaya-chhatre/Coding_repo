@@ -41,38 +41,40 @@ a { color:var(--accent); text-decoration:none; } a:hover { color:var(--accent-mi
 .eyebrow { font-size:11px; font-weight:600; letter-spacing:1.4px; text-transform:uppercase; color:var(--accent); margin-bottom:10px; }
 h1 { font-family:var(--font-serif); font-size:38px; line-height:1.15; letter-spacing:-.4px; font-weight:400; margin-bottom:14px; }
 .lede { font-size:16px; line-height:1.7; color:var(--text-2); max-width:640px; margin-bottom:32px; }
-.tabs { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:20px; }
-.tab { font:inherit; font-size:13px; font-weight:500; padding:8px 14px; border-radius:var(--radius-full); cursor:pointer;
-       background:var(--surface); color:var(--text-2); border:1px solid var(--border-mid); transition:border-color .2s,color .2s,background .2s; }
-.tab:hover { border-color:var(--accent); color:var(--accent); }
-.tab[aria-selected="true"] { background:var(--accent-light); color:var(--accent); border-color:var(--accent); }
-.card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:24px; margin-bottom:16px; box-shadow:var(--shadow-sm); }
-.card h2 { font-size:11px; font-weight:700; letter-spacing:1.2px; text-transform:uppercase; color:var(--accent); margin-bottom:12px; }
-.how { font-size:14px; line-height:1.7; color:var(--text-2); }
-.how code, .req-line code { font-family:var(--font-mono); font-size:13px; background:var(--surface-2); padding:2px 6px; border-radius:var(--radius-sm); }
-.req-line { font-family:var(--font-mono); font-size:13px; color:var(--text-1); margin-bottom:10px; word-break:break-all; }
-pre { font-family:var(--font-mono); font-size:12.5px; line-height:1.55; background:var(--surface-2); color:var(--text-1);
-      padding:14px 16px; border-radius:var(--radius-md); overflow-x:auto; white-space:pre-wrap; word-break:break-all; }
-.label { font-size:12px; color:var(--text-3); margin:14px 0 6px; font-weight:500; }
-.label:first-of-type { margin-top:0; }
-.hdr-sig { color:var(--accent); font-weight:600; }
-.controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px; }
-.controls label { font-size:12px; color:var(--text-3); font-weight:500; display:flex; flex-direction:column; gap:4px; flex:1 1 220px; }
-.controls input, .controls select, .lab-body { font:inherit; font-size:13px; padding:8px 10px; border-radius:var(--radius-md);
-       border:1px solid var(--border-mid); background:var(--bg); color:var(--text-1); width:100%; }
-.lab-body { font-family:var(--font-mono); font-size:12.5px; min-height:96px; resize:vertical; }
-.btn { font:inherit; font-size:13px; font-weight:500; padding:8px 12px; border-radius:var(--radius-md); cursor:pointer;
-       background:var(--surface); color:var(--text-2); border:1px solid var(--border-mid); transition:border-color .2s,color .2s; }
-.btn:hover { border-color:var(--accent); color:var(--accent); }
-.verdict { display:flex; align-items:baseline; flex-wrap:wrap; gap:10px; margin-top:14px; padding:14px 16px; border-radius:var(--radius-md); }
-.verdict.valid { background:var(--accent-pale); border:1px solid var(--accent-light); }
-.verdict.rejected { background:var(--bad-pale); border:1px solid var(--bad); }
-.verdict-status { font-weight:700; font-size:15px; letter-spacing:.3px; text-transform:uppercase; }
-.verdict.valid .verdict-status { color:var(--ok); } .verdict.rejected .verdict-status { color:var(--bad); }
-.verdict-reason { font-size:13px; color:var(--text-2); }
-.foot { margin-top:32px; font-size:13px; color:var(--text-3); line-height:1.7; }
 @media (max-width:640px) { .page { padding:32px 20px 60px; } h1 { font-size:30px; } }
 @media (prefers-reduced-motion:reduce) { * { transition:none !important; } }
+#hs-lab .tabs { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:20px; }
+#hs-lab .tab { font:inherit; font-size:13px; font-weight:500; padding:8px 14px; border-radius:var(--radius-full); cursor:pointer;
+       background:var(--surface); color:var(--text-2); border:1px solid var(--border-mid); transition:border-color .2s,color .2s,background .2s; }
+#hs-lab .tab:hover { border-color:var(--accent); color:var(--accent); }
+#hs-lab .tab[aria-selected="true"] { background:var(--accent-light); color:var(--accent); border-color:var(--accent); }
+#hs-lab .card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:24px; margin-bottom:16px; box-shadow:var(--shadow-sm); }
+#hs-lab .card h2 { font-size:11px; font-weight:700; letter-spacing:1.2px; text-transform:uppercase; color:var(--accent); margin-bottom:12px; }
+#hs-lab .how { font-size:14px; line-height:1.7; color:var(--text-2); }
+#hs-lab .how code, #hs-lab .req-line code { font-family:var(--font-mono); font-size:13px; background:var(--surface-2); padding:2px 6px; border-radius:var(--radius-sm); }
+#hs-lab .req-line { font-family:var(--font-mono); font-size:13px; color:var(--text-1); margin-bottom:10px; word-break:break-all; }
+#hs-lab pre { font-family:var(--font-mono); font-size:12.5px; line-height:1.55; background:var(--surface-2); color:var(--text-1);
+      padding:14px 16px; border-radius:var(--radius-md); overflow-x:auto; white-space:pre-wrap; word-break:break-all; }
+#hs-lab .label { font-size:12px; color:var(--text-3); margin:14px 0 6px; font-weight:500; }
+#hs-lab .label:first-of-type { margin-top:0; }
+#hs-lab .hdr-sig { color:var(--accent); font-weight:600; }
+#hs-lab .controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px; }
+#hs-lab .controls label { font-size:12px; color:var(--text-3); font-weight:500; display:flex; flex-direction:column; gap:4px; flex:1 1 220px; }
+#hs-lab .controls input, #hs-lab .controls select, #hs-lab .lab-body { font:inherit; font-size:13px; padding:8px 10px; border-radius:var(--radius-md);
+       border:1px solid var(--border-mid); background:var(--bg); color:var(--text-1); width:100%; }
+#hs-lab .lab-body { font-family:var(--font-mono); font-size:12.5px; min-height:96px; resize:vertical; }
+#hs-lab .btn { font:inherit; font-size:13px; font-weight:500; padding:8px 12px; border-radius:var(--radius-md); cursor:pointer;
+       background:var(--surface); color:var(--text-2); border:1px solid var(--border-mid); transition:border-color .2s,color .2s; }
+#hs-lab .btn:hover { border-color:var(--accent); color:var(--accent); }
+#hs-lab .verdict { display:flex; align-items:baseline; flex-wrap:wrap; gap:10px; margin-top:14px; padding:14px 16px; border-radius:var(--radius-md); }
+#hs-lab .verdict.valid { background:var(--accent-pale); border:1px solid var(--accent-light); }
+#hs-lab .verdict.rejected { background:var(--bad-pale); border:1px solid var(--bad); }
+#hs-lab .verdict-status { font-weight:700; font-size:15px; letter-spacing:.3px; text-transform:uppercase; }
+#hs-lab .verdict.valid .verdict-status { color:var(--ok); }
+#hs-lab .verdict.rejected .verdict-status { color:var(--bad); }
+#hs-lab .verdict-reason { font-size:13px; color:var(--text-2); }
+#hs-lab .foot { margin-top:32px; font-size:13px; color:var(--text-3); line-height:1.7; }
+#hs-lab .how + .controls { margin-top:12px; }
 </style>
 </head>
 <body>
@@ -86,78 +88,347 @@ pre { font-family:var(--font-mono); font-size:12.5px; line-height:1.55; backgrou
   <p class="lede">Every provider signs its webhooks differently, and most &ldquo;signature mismatch&rdquo; tickets come down to one
     detail: the exact bytes, the exact URL or the clock. Pick a provider to see a real-shaped request and how it is signed.
     This runs entirely in your browser; nothing is sent anywhere.</p>
-
-  <div class="tabs" role="tablist" aria-label="Provider" id="tabs"></div>
-  <section id="panel" role="tabpanel" aria-live="polite"></section>
-
-  <p class="foot">The sample payloads are illustrative test data, not recordings of real traffic, and the secrets are public demo values.
-    The verifier behind this page is <a href="https://github.com/chinmaya-chhatre/Coding_repo">HookScope</a>, an open-source webhook receiver
-    that verifies, stores, forwards and replays these deliveries.</p>
+  <div id="hs-lab">
+    <div class="tabs" role="tablist" aria-label="Provider" id="tabs"></div>
+    <section id="panel" role="tabpanel" aria-live="polite"></section>
+    <p class="foot">The sample payloads are illustrative test data, not recordings of real traffic, and the secrets are public demo values.
+      The verifier behind this page is <a href="https://github.com/chinmaya-chhatre/Coding_repo">HookScope</a>, an open-source webhook receiver
+      that verifies, stores, forwards and replays these deliveries.</p>
+  </div>
 </main>
-
-<script src="signing.js"></script>
 <script type="application/json" id="providers">
 [
   {
-    "id": "github", "label": "GitHub", "method": "POST", "path": "/hooks/github", "contentType": "application/json",
+    "id": "github",
+    "label": "GitHub",
+    "method": "POST",
+    "path": "/hooks/github",
+    "contentType": "application/json",
     "secret": "It's a Secret to Everybody",
-    "signatureHeaders": ["X-Hub-Signature-256"],
-    "extraHeaders": {"X-GitHub-Event": "pull_request", "X-GitHub-Delivery": "0b1c3d4e-0000-4000-8000-000000000001"},
+    "signatureHeaders": [
+      "X-Hub-Signature-256"
+    ],
+    "extraHeaders": {
+      "X-GitHub-Event": "pull_request",
+      "X-GitHub-Delivery": "0b1c3d4e-0000-4000-8000-000000000001"
+    },
     "how": "<code>X-Hub-Signature-256: sha256=&lt;hex&gt;</code>, the HMAC-SHA256 of the raw body, keyed with the webhook secret.",
     "body": "{\"action\":\"opened\",\"number\":42,\"pull_request\":{\"title\":\"Fix retry backoff\",\"user\":{\"login\":\"octocat\"}},\"repository\":{\"full_name\":\"acme/billing-service\"}}"
   },
   {
-    "id": "stripe", "label": "Stripe", "method": "POST", "path": "/hooks/stripe", "contentType": "application/json",
+    "id": "stripe",
+    "label": "Stripe",
+    "method": "POST",
+    "path": "/hooks/stripe",
+    "contentType": "application/json",
     "secret": "whsec_demo_stripe_secret",
-    "signatureHeaders": ["Stripe-Signature"],
+    "signatureHeaders": [
+      "Stripe-Signature"
+    ],
     "extraHeaders": {},
     "how": "<code>Stripe-Signature: t=&lt;unix time&gt;,v1=&lt;hex&gt;</code>, the HMAC-SHA256 of <code>&quot;&lt;t&gt;.&lt;body&gt;&quot;</code>. The timestamp must be within five minutes of now, which stops replays.",
     "body": "{\"id\":\"evt_1QxAcmePaid\",\"object\":\"event\",\"type\":\"invoice.paid\",\"data\":{\"object\":{\"id\":\"in_1QxAcmeInvoice\",\"customer_email\":\"billing@acme.example\",\"amount_paid\":125000,\"currency\":\"usd\",\"status\":\"paid\"}}}"
   },
   {
-    "id": "shopify", "label": "Shopify", "method": "POST", "path": "/hooks/shopify", "contentType": "application/json",
+    "id": "shopify",
+    "label": "Shopify",
+    "method": "POST",
+    "path": "/hooks/shopify",
+    "contentType": "application/json",
     "secret": "demo-shopify-secret",
-    "signatureHeaders": ["X-Shopify-Hmac-Sha256"],
-    "extraHeaders": {"X-Shopify-Topic": "orders/create", "X-Shopify-Shop-Domain": "example.myshopify.com"},
+    "signatureHeaders": [
+      "X-Shopify-Hmac-Sha256"
+    ],
+    "extraHeaders": {
+      "X-Shopify-Topic": "orders/create",
+      "X-Shopify-Shop-Domain": "example.myshopify.com"
+    },
     "how": "<code>X-Shopify-Hmac-Sha256: &lt;base64&gt;</code>, the HMAC-SHA256 of the raw body, base64-encoded (not hex).",
     "body": "{\"id\":820982911946154508,\"name\":\"#1001\",\"currency\":\"USD\",\"total_price\":\"199.00\",\"line_items\":[{\"sku\":\"TEE-BLK-M\",\"quantity\":2,\"price\":\"99.50\"}]}"
   },
   {
-    "id": "slack", "label": "Slack", "method": "POST", "path": "/hooks/slack", "contentType": "application/x-www-form-urlencoded",
+    "id": "slack",
+    "label": "Slack",
+    "method": "POST",
+    "path": "/hooks/slack",
+    "contentType": "application/x-www-form-urlencoded",
     "secret": "demo-slack-signing-secret",
-    "signatureHeaders": ["X-Slack-Signature", "X-Slack-Request-Timestamp"],
+    "signatureHeaders": [
+      "X-Slack-Signature",
+      "X-Slack-Request-Timestamp"
+    ],
     "extraHeaders": {},
     "how": "<code>X-Slack-Signature: v0=&lt;hex&gt;</code>, the HMAC-SHA256 of <code>&quot;v0:&lt;timestamp&gt;:&lt;body&gt;&quot;</code>, with the timestamp in <code>X-Slack-Request-Timestamp</code> (five-minute window).",
     "body": "team_id=T0123&channel_id=C0123&user_name=jane&command=%2Fticket&text=printer+on+fire&response_url=https%3A%2F%2Fhooks.slack.com%2Fcommands%2FT0%2F1%2Fxyz&trigger_id=1234.5678.abcdef"
   },
   {
-    "id": "twilio", "label": "Twilio", "method": "POST", "path": "/hooks/twilio", "contentType": "application/x-www-form-urlencoded",
+    "id": "twilio",
+    "label": "Twilio",
+    "method": "POST",
+    "path": "/hooks/twilio",
+    "contentType": "application/x-www-form-urlencoded",
     "url": "https://example.com/hooks/twilio",
     "secret": "demo-twilio-auth-token",
-    "signatureHeaders": ["X-Twilio-Signature"],
+    "signatureHeaders": [
+      "X-Twilio-Signature"
+    ],
     "extraHeaders": {},
     "how": "<code>X-Twilio-Signature: &lt;base64&gt;</code>, an HMAC-SHA1 of the <em>full public URL</em> followed by every form parameter name and value, sorted by name. Behind a proxy that rewrites the URL, verification fails.",
     "body": "MessageSid=SM00000000000000000000000000000001&From=%2B16175550123&To=%2B18005551212&Body=My+order+never+arrived&NumMedia=0"
   },
   {
-    "id": "svix", "label": "Svix", "method": "POST", "path": "/hooks/svix", "contentType": "application/json",
+    "id": "svix",
+    "label": "Svix",
+    "method": "POST",
+    "path": "/hooks/svix",
+    "contentType": "application/json",
     "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
-    "signatureHeaders": ["svix-signature", "svix-id", "svix-timestamp"],
+    "signatureHeaders": [
+      "svix-signature",
+      "svix-id",
+      "svix-timestamp"
+    ],
     "extraHeaders": {},
     "how": "<code>svix-signature: v1,&lt;base64&gt;</code>, the HMAC-SHA256 of <code>&quot;&lt;svix-id&gt;.&lt;svix-timestamp&gt;.&lt;body&gt;&quot;</code>, keyed with the base64 part of the <code>whsec_</code> secret. Standard Webhooks senders use <code>webhook-*</code> header names.",
     "body": "{\"type\":\"invoice.created\",\"timestamp\":\"2026-10-14T13:00:00Z\",\"data\":{\"id\":\"inv_123\",\"total\":4200}}"
   },
   {
-    "id": "generic", "label": "Generic HMAC", "method": "POST", "path": "/hooks/generic", "contentType": "application/json",
+    "id": "generic",
+    "label": "Generic HMAC",
+    "method": "POST",
+    "path": "/hooks/generic",
+    "contentType": "application/json",
     "secret": "demo-generic-secret",
-    "signatureHeaders": ["X-Signature"],
+    "signatureHeaders": [
+      "X-Signature"
+    ],
     "extraHeaders": {},
     "how": "<code>X-Signature: &lt;hex&gt;</code>, the HMAC-SHA256 of the raw body. For senders that follow no standard.",
     "body": "{\"event\":\"ping\",\"id\":\"evt_generic_1\"}"
   }
 ]
 </script>
+<script>
+/* In-browser webhook signing for the HookScope demo, using Web Crypto only.
+ *
+ * sign(provider, { body, secret, timestamp, url, msgId }) resolves to
+ *   { headers: {name: value}, signedString: "...", signedUrl: "..."? }
+ * Each provider mirrors its documented scheme; tests check the output against the providers'
+ * published examples and against HookScope's own verifiers.
+ *
+ * verify(provider, { body, headers, secret, url, now }) resolves to { status, reason } with the same
+ * statuses and reasons as HookScope's verifiers, so the demo's verdicts are the server's verdicts.
+ *
+ * Works in browsers and in Node 18+ (module.exports), so the same file is tested and shipped.
+ */
+(function (root) {
+  'use strict';
 
+  var enc = new TextEncoder();
+  var subtle = (root.crypto || require('node:crypto').webcrypto).subtle;
+
+  function toHex(buffer) {
+    return Array.prototype.map.call(new Uint8Array(buffer), function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+  }
+  function toBase64(buffer) {
+    var bytes = new Uint8Array(buffer), binary = '';
+    for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
+  }
+  function fromBase64(text) {
+    var binary = atob(text), bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+
+  function hmac(hash, keyBytes, message) {
+    return subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: hash }, false, ['sign'])
+      .then(function (key) { return subtle.sign('HMAC', key, enc.encode(message)); });
+  }
+  function hmacText(hash, secret, message) { return hmac(hash, enc.encode(secret), message); }
+
+  function now() { return Math.floor(Date.now() / 1000); }
+
+  /** Form parameters in order. Plus signs are spaces, as in application/x-www-form-urlencoded. */
+  function parseForm(body) {
+    if (!body) return [];
+    return body.split('&').map(function (pair) {
+      var i = pair.indexOf('=');
+      var name = i < 0 ? pair : pair.slice(0, i), value = i < 0 ? '' : pair.slice(i + 1);
+      var decode = function (s) { return decodeURIComponent(s.replace(/\+/g, ' ')); };
+      return [decode(name), decode(value)];
+    });
+  }
+
+  function twilioString(url, body) {
+    var params = parseForm(body).sort(function (a, b) {
+      return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0;
+    });
+    return url + params.map(function (p) { return p[0] + p[1]; }).join('');
+  }
+
+  var PROVIDERS = {
+    github: function (o) {
+      return hmacText('SHA-256', o.secret, o.body).then(function (mac) {
+        return { headers: { 'X-Hub-Signature-256': 'sha256=' + toHex(mac) }, signedString: o.body };
+      });
+    },
+    stripe: function (o) {
+      var ts = o.timestamp, signed = ts + '.' + o.body;
+      return hmacText('SHA-256', o.secret, signed).then(function (mac) {
+        return { headers: { 'Stripe-Signature': 't=' + ts + ',v1=' + toHex(mac) }, signedString: signed };
+      });
+    },
+    shopify: function (o) {
+      return hmacText('SHA-256', o.secret, o.body).then(function (mac) {
+        return { headers: { 'X-Shopify-Hmac-Sha256': toBase64(mac) }, signedString: o.body };
+      });
+    },
+    slack: function (o) {
+      var signed = 'v0:' + o.timestamp + ':' + o.body;
+      return hmacText('SHA-256', o.secret, signed).then(function (mac) {
+        return {
+          headers: { 'X-Slack-Signature': 'v0=' + toHex(mac), 'X-Slack-Request-Timestamp': String(o.timestamp) },
+          signedString: signed
+        };
+      });
+    },
+    twilio: function (o) {
+      var signed = twilioString(o.url, o.body);
+      return hmacText('SHA-1', o.secret, signed).then(function (mac) {
+        return { headers: { 'X-Twilio-Signature': toBase64(mac) }, signedString: signed };
+      });
+    },
+    svix: function (o) {
+      var signed = o.msgId + '.' + o.timestamp + '.' + o.body;
+      var key = fromBase64(o.secret.replace(/^whsec_/, ''));
+      var prefix = o.prefix || 'svix';
+      return hmac('SHA-256', key, signed).then(function (mac) {
+        var headers = {};
+        headers[prefix + '-id'] = o.msgId;
+        headers[prefix + '-timestamp'] = String(o.timestamp);
+        headers[prefix + '-signature'] = 'v1,' + toBase64(mac);
+        return { headers: headers, signedString: signed };
+      });
+    },
+    generic: function (o) {
+      return hmacText('SHA-256', o.secret, o.body).then(function (mac) {
+        return { headers: { 'X-Signature': toHex(mac) }, signedString: o.body };
+      });
+    }
+  };
+
+  /** Sign `body` as `provider` would. `timestamp` (unix seconds) defaults to now. */
+  function sign(provider, options) {
+    var build = PROVIDERS[provider];
+    if (!build) return Promise.reject(new Error('unknown provider: ' + provider));
+    var o = Object.assign({ timestamp: now(), msgId: 'msg_demo_0001', url: '' }, options);
+    return build(o);
+  }
+
+  var TOLERANCE_SECONDS = 300;
+
+  function header(headers, name) {
+    var wanted = name.toLowerCase();
+    for (var key in headers) if (key.toLowerCase() === wanted) return headers[key];
+    return undefined;
+  }
+  function ok() { return { status: 'valid', reason: '' }; }
+  function bad(reason) { return { status: 'invalid', reason: reason }; }
+  function unsigned(name) { return { status: 'unsigned', reason: 'missing ' + name + ' header' }; }
+  function outsideTolerance(timestamp, now) { return Math.abs(now - Number(timestamp)) > TOLERANCE_SECONDS; }
+  var REPLAY = 'timestamp outside tolerance (possible replay)';
+
+  var VERIFIERS = {
+    github: function (o) {
+      var received = header(o.headers, 'X-Hub-Signature-256');
+      if (!received) return Promise.resolve(unsigned('X-Hub-Signature-256'));
+      return sign('github', o).then(function (r) {
+        return received === r.headers['X-Hub-Signature-256'] ? ok() : bad('signature mismatch');
+      });
+    },
+    stripe: function (o) {
+      var received = header(o.headers, 'Stripe-Signature');
+      if (!received) return Promise.resolve(unsigned('Stripe-Signature'));
+      var t = null, sigs = [];
+      received.split(',').forEach(function (part) {
+        var i = part.indexOf('='), k = part.slice(0, i).trim(), v = part.slice(i + 1);
+        if (k === 't') t = v; else if (k === 'v1') sigs.push(v);
+      });
+      if (!t || !/^\d+$/.test(t) || !sigs.length) return Promise.resolve(bad('expected format t=<ts>,v1=<hex>'));
+      if (outsideTolerance(t, o.now)) return Promise.resolve(bad(REPLAY));
+      return sign('stripe', Object.assign({}, o, { timestamp: t })).then(function (r) {
+        var expected = r.headers['Stripe-Signature'].split('v1=')[1];
+        return sigs.indexOf(expected) >= 0 ? ok() : bad('signature mismatch');
+      });
+    },
+    shopify: function (o) {
+      var received = header(o.headers, 'X-Shopify-Hmac-Sha256');
+      if (!received) return Promise.resolve(unsigned('X-Shopify-Hmac-Sha256'));
+      return sign('shopify', o).then(function (r) {
+        return received === r.headers['X-Shopify-Hmac-Sha256'] ? ok() : bad('signature mismatch');
+      });
+    },
+    slack: function (o) {
+      var received = header(o.headers, 'X-Slack-Signature');
+      var t = header(o.headers, 'X-Slack-Request-Timestamp');
+      if (!received) return Promise.resolve(unsigned('X-Slack-Signature'));
+      if (received.indexOf('v0=') !== 0) return Promise.resolve(bad('expected format v0=<hex>'));
+      if (!t || !/^\d+$/.test(t)) return Promise.resolve(bad('missing or malformed X-Slack-Request-Timestamp header'));
+      if (outsideTolerance(t, o.now)) return Promise.resolve(bad(REPLAY));
+      return sign('slack', Object.assign({}, o, { timestamp: t })).then(function (r) {
+        return received === r.headers['X-Slack-Signature'] ? ok() : bad('signature mismatch');
+      });
+    },
+    twilio: function (o) {
+      var received = header(o.headers, 'X-Twilio-Signature');
+      if (!received) return Promise.resolve(unsigned('X-Twilio-Signature'));
+      if (!o.url) return Promise.resolve(bad('request URL unknown'));
+      return sign('twilio', o).then(function (r) {
+        return received === r.headers['X-Twilio-Signature']
+          ? ok() : bad('signature mismatch (check the public URL Twilio calls)');
+      });
+    },
+    svix: function (o) {
+      var prefix = header(o.headers, 'svix-signature') ? 'svix' : 'webhook';
+      var received = header(o.headers, prefix + '-signature');
+      var id = header(o.headers, prefix + '-id'), t = header(o.headers, prefix + '-timestamp');
+      if (!received) return Promise.resolve(unsigned('svix-signature'));
+      if (!id || !t || !/^\d+$/.test(t)) {
+        return Promise.resolve(bad('missing or malformed ' + prefix + '-id / ' + prefix + '-timestamp header'));
+      }
+      try { fromBase64(o.secret.replace(/^whsec_/, '')); } catch (e) {
+        return Promise.resolve(bad('configured secret is not a valid whsec_ key'));
+      }
+      if (outsideTolerance(t, o.now)) return Promise.resolve(bad(REPLAY));
+      return sign('svix', Object.assign({}, o, { timestamp: t, msgId: id })).then(function (r) {
+        var expected = r.headers['svix-signature'].slice(3);
+        var candidates = received.split(/\s+/).map(function (part) { return part.split(','); })
+          .filter(function (pair) { return pair[0] === 'v1'; }).map(function (pair) { return pair[1]; });
+        return candidates.indexOf(expected) >= 0 ? ok() : bad('signature mismatch');
+      });
+    },
+    generic: function (o) {
+      var received = header(o.headers, 'X-Signature');
+      if (!received) return Promise.resolve(unsigned('X-Signature'));
+      return sign('generic', o).then(function (r) {
+        return received === r.headers['X-Signature'] ? ok() : bad('signature mismatch');
+      });
+    }
+  };
+
+  /** Check a received request the way HookScope would. `now` (unix seconds) defaults to the current time. */
+  function verify(provider, options) {
+    var check = VERIFIERS[provider];
+    if (!check) return Promise.reject(new Error('unknown provider: ' + provider));
+    return check(Object.assign({ now: now(), url: '', headers: {} }, options));
+  }
+
+  var api = { sign: sign, verify: verify, TOLERANCE_SECONDS: TOLERANCE_SECONDS, providers: Object.keys(PROVIDERS), parseForm: parseForm, twilioString: twilioString };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  root.HookScopeSigning = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+</script>
 <script>
 (function () {
   'use strict';
@@ -309,6 +580,12 @@ pre { font-family:var(--font-mono); font-size:12.5px; line-height:1.55; backgrou
     tabs.appendChild(tab);
   });
 
+  window.HookScopeDemo = { providers: PROVIDERS, current: function () { return current; } };
+  render();
+})();
+</script>
+<script>
+(function () {
   var THEME_KEY = 'cc-theme', root = document.documentElement, btn = document.getElementById('theme');
   function applyTheme(t) { root.setAttribute('data-theme', t); btn.textContent = t === 'dark' ? '☀️' : '☽'; }
   var saved = 'light';
@@ -319,9 +596,6 @@ pre { font-family:var(--font-mono); font-size:12.5px; line-height:1.55; backgrou
     try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
     applyTheme(next);
   });
-
-  window.HookScopeDemo = { providers: PROVIDERS, current: function () { return current; } };
-  render();
 })();
 </script>
 </body>

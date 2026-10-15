@@ -1,0 +1,35 @@
+/* Tokens mirror the portfolio's style.css so the page looks native there and works standalone. */
+:root {
+  --bg:#F5F0E8; --surface:#FFFFFF; --surface-2:#EDE7D9;
+  --text-1:#1A1814; --text-2:#3D3A35; --text-3:#6B6760; --text-4:#9C9890;
+  --accent:#0F7B6C; --accent-mid:#1D9E8A; --accent-light:#C8EDE8; --accent-pale:#EAF7F5;
+  --bad:#B42318; --bad-pale:#FEE4E2; --ok:#0F7B6C;
+  --border:rgba(26,24,20,0.10); --border-mid:rgba(26,24,20,0.20);
+  --shadow-sm:0 1px 4px rgba(26,24,20,0.07); --shadow-md:0 4px 24px rgba(26,24,20,0.11);
+  --radius-sm:6px; --radius-md:10px; --radius-lg:16px; --radius-full:9999px;
+  --font-serif:'DM Serif Display',Georgia,serif; --font-sans:'DM Sans',system-ui,sans-serif;
+  --font-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+[data-theme="dark"] {
+  --bg:#111009; --surface:#1C1A16; --surface-2:#252320;
+  --text-1:#F2EDE3; --text-2:#D4CEC4; --text-3:#A09A90; --text-4:#605C56;
+  --accent:#2DBFA8; --accent-mid:#25A892; --accent-light:rgba(45,191,168,0.18); --accent-pale:rgba(45,191,168,0.07);
+  --bad:#F97066; --bad-pale:rgba(249,112,102,0.12); --ok:#2DBFA8;
+  --border:rgba(242,237,227,0.10); --border-mid:rgba(242,237,227,0.20);
+  --shadow-sm:0 1px 4px rgba(0,0,0,0.4); --shadow-md:0 4px 24px rgba(0,0,0,0.5);
+}
+*,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
+body { font-family:var(--font-sans); background:var(--bg); color:var(--text-1); min-height:100vh; transition:background .3s,color .3s; }
+a { color:var(--accent); text-decoration:none; } a:hover { color:var(--accent-mid); }
+:focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:var(--radius-sm); }
+.page { max-width:900px; margin:0 auto; padding:48px 32px 80px; }
+.top { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:28px; }
+.back { font-size:13px; color:var(--text-3); }
+.theme { background:none; border:1px solid var(--border-mid); color:var(--text-2); width:34px; height:34px;
+         border-radius:var(--radius-sm); cursor:pointer; font-size:15px; }
+.theme:hover { background:var(--surface-2); }
+.eyebrow { font-size:11px; font-weight:600; letter-spacing:1.4px; text-transform:uppercase; color:var(--accent); margin-bottom:10px; }
+h1 { font-family:var(--font-serif); font-size:38px; line-height:1.15; letter-spacing:-.4px; font-weight:400; margin-bottom:14px; }
+.lede { font-size:16px; line-height:1.7; color:var(--text-2); max-width:640px; margin-bottom:32px; }
+@media (max-width:640px) { .page { padding:32px 20px 60px; } h1 { font-size:30px; } }
+@media (prefers-reduced-motion:reduce) { * { transition:none !important; } }

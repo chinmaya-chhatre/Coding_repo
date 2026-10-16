@@ -39,6 +39,12 @@
                      background:var(--card); border:1px solid var(--border); border-radius:6px; }
     .replay button:disabled { opacity:.6; cursor:wait; }
     .replay-result { flex-basis:100%; margin:0; font-size:13px; white-space:pre-wrap; word-break:break-word; }
+    .curl { display:flex; gap:8px; flex-wrap:wrap; align-items:center; padding:10px 14px; border-top:1px solid var(--border); }
+    .curl button { padding:6px 12px; font:inherit; cursor:pointer; color:var(--text);
+                   background:var(--card); border:1px solid var(--border); border-radius:6px; }
+    .curl button:disabled { opacity:.6; cursor:wait; }
+    .curl-note { font-size:13px; } .curl-note.ok { color:var(--ok); } .curl-note.err { color:var(--bad); }
+    .curl-output { flex-basis:100%; margin:0; white-space:pre-wrap; word-break:break-all; }
     .replay-result.ok { color:var(--ok); } .replay-result.err { color:var(--bad); }
     .forwards { padding:10px 14px; border-top:1px solid var(--border); font-size:13px; overflow-x:auto; }
     .forwards h2 { margin:0 0 6px; font-size:13px; font-weight:600; }
@@ -78,6 +84,36 @@
 <script>
   const TARGET_KEY = "hookscope.replayTarget";
   const remembered = (() => { try { return localStorage.getItem(TARGET_KEY) || ""; } catch { return ""; } })();
+
+  for (const box of document.querySelectorAll(".curl")) {
+    const button = box.querySelector("button");
+    const note = box.querySelector(".curl-note");
+    const output = box.querySelector(".curl-output");
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      note.className = "curl-note";
+      note.textContent = "Building…";
+      try {
+        const resp = await fetch(`/api/events/${box.dataset.eventId}/curl`);
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || resp.status);
+        output.textContent = data.command;
+        output.hidden = false;
+        try {
+          await navigator.clipboard.writeText(data.command);
+          note.className = "curl-note ok";
+          note.textContent = "Copied to the clipboard.";
+        } catch {
+          note.textContent = "Select and copy the command below.";
+        }
+      } catch (err) {
+        note.className = "curl-note err";
+        note.textContent = `Could not build the command: ${err}`;
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
 
   for (const form of document.querySelectorAll("form.replay")) {
     const input = form.elements.target_url;

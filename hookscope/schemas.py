@@ -115,6 +115,11 @@ class RuleOut(BaseModel):
     retry: RetryPolicyOut
 
 
+class CurlOut(BaseModel):
+    command: str = Field(description="A shell command that sends this event to this HookScope again.")
+    omitted_headers: list[str] = Field(description="Credential headers that were never stored.")
+
+
 class PurgeOut(BaseModel):
     removed: int
     remaining: int

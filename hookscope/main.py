@@ -14,10 +14,12 @@ from fastapi.templating import Jinja2Templates
 
 from . import __version__, auth, metrics
 from .config import Settings
+from .curl import build_curl, redacted_headers
 from .replay import InvalidTargetError, ReplayResult, replay_event
 from .retention import Purger, RetentionPolicy
 from .rules import ForwardRule, deliver, event_type, forward_event, is_dead_letter, load_rules, matching_rules
 from .schemas import (
+    CurlOut,
     DeadLetterOut,
     EventOut,
     ForwardOut,
@@ -295,6 +297,23 @@ def create_app(
         if event is None:
             raise HTTPException(404, "event not found")
         return event
+
+    @app.get(
+        "/api/events/{event_id}/curl",
+        tags=["events"],
+        summary="Rebuild an event as a curl command",
+        response_model=CurlOut,
+        responses=error_responses(404),
+    )
+    def event_as_curl(event_id: int, request: Request) -> dict:
+        """The stored headers and exact body, aimed at this server's `/hooks/<source>`."""
+        event = store.get(event_id)
+        if event is None:
+            raise HTTPException(404, "event not found")
+        return {
+            "command": build_curl(event, str(request.base_url)),
+            "omitted_headers": redacted_headers(event),
+        }
 
     @app.get(
         "/api/events/{event_id}/forwards",

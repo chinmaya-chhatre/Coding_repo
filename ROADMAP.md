@@ -31,7 +31,7 @@ No backend: signatures are computed in the browser with Web Crypto.
 - [x] P1.04 Cursor pagination for `GET /api/events` (`before_id`; the `next` cursor is the `X-Next-Cursor` header so the body stays a list)
 - [x] P1.05 Dashboard "older events" paging on top of the cursor
 - [x] P1.06 Event permalink page `/events/{id}` (shareable detail view)
-- [ ] P1.07 "Copy as curl": rebuild the original request from a stored event
+- [x] P1.07 "Copy as curl": rebuild the original request from a stored event
 - [ ] P1.08 Request-ID middleware: accept or generate `X-Request-ID`, return it, store it on the event
 - [ ] P1.09 Structured JSON logs (`HOOKSCOPE_LOG_FORMAT=json`) carrying the request id
 - [ ] P1.10 `/readyz` (database writable) alongside the cheap `/healthz`

@@ -37,6 +37,11 @@
       </table>
     </section>
     {% endif %}
+    <div class="curl" data-event-id="{{ e.id }}">
+      <button type="button" class="copy-curl">Copy as curl</button>
+      <span class="curl-note" role="status"></span>
+      <pre class="curl-output" hidden></pre>
+    </div>
     <form class="replay" data-event-id="{{ e.id }}">
       <input type="url" name="target_url" placeholder="http://localhost:3000/webhooks" required
              aria-label="Replay target URL for event {{ e.id }}">

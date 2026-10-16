@@ -296,11 +296,19 @@ def forward_event(event: dict, rule: ForwardRule, client: httpx.Client) -> Repla
         # The new JSON document replaces the original bytes too.
         new_event = {**event, "body": json.dumps(document), "body_base64": None}
         headers = {"Content-Type": "application/json", FORWARD_HEADER: rule.name}
+        _pass_on_request_id(headers, event)
         return replay_event(new_event, rule.target_url, client, headers=headers)
     headers = replay_headers(event)
     headers.pop(REPLAY_HEADER, None)
     headers[FORWARD_HEADER] = rule.name
+    _pass_on_request_id(headers, event)
     return replay_event(event, rule.target_url, client, headers=headers)
+
+
+def _pass_on_request_id(headers: dict[str, str], event: dict) -> None:
+    """Let the target log the same id HookScope stored, unless the sender's own header already says so."""
+    if event.get("request_id") and not any(name.lower() == "x-request-id" for name in headers):
+        headers["X-Request-ID"] = event["request_id"]
 
 
 def forward_attempts(

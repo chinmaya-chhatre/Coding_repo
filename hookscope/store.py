@@ -20,7 +20,9 @@ CREATE TABLE IF NOT EXISTS events (
     verification  TEXT NOT NULL,
     reason        TEXT NOT NULL DEFAULT '',
     -- The exact bytes, only for bodies that are not valid UTF-8 (``body`` is then lossy).
-    body_base64   TEXT
+    body_base64   TEXT,
+    -- X-Request-ID the sender supplied, or the one HookScope generated for the request.
+    request_id    TEXT
 );
 
 CREATE TABLE IF NOT EXISTS forwards (
@@ -66,6 +68,7 @@ class EventStore:
         verification: str,
         reason: str,
         raw_body: bytes | None = None,
+        request_id: str | None = None,
     ) -> int:
         """Store an event. Pass ``raw_body`` (the bytes as received) so that bodies which
         are not valid UTF-8 can later be replayed and forwarded byte for byte."""
@@ -77,8 +80,9 @@ class EventStore:
                 body_base64 = base64.b64encode(raw_body).decode()
         with self._connect() as conn:
             cur = conn.execute(
-                "INSERT INTO events (source, received_at, headers, body, verification, reason, body_base64) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO events "
+                "(source, received_at, headers, body, verification, reason, body_base64, request_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     source,
                     _now(),
@@ -87,6 +91,7 @@ class EventStore:
                     verification,
                     reason,
                     body_base64,
+                    request_id,
                 ),
             )
             return int(cur.lastrowid)
@@ -249,6 +254,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     event_columns = {row["name"] for row in conn.execute("PRAGMA table_info(events)")}
     if "body_base64" not in event_columns:
         conn.execute("ALTER TABLE events ADD COLUMN body_base64 TEXT")
+    if "request_id" not in event_columns:
+        conn.execute("ALTER TABLE events ADD COLUMN request_id TEXT")
 
 
 # Headers that carry the sender's credentials for *some* service. HookScope authenticates

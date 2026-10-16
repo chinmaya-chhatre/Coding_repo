@@ -11,7 +11,7 @@
       </span>
       {% endif %}
     </summary>
-    <p class="muted"><a href="/events/{{ e.id }}">Permalink</a></p>
+    <p class="muted"><a href="/events/{{ e.id }}">Permalink</a>{% if e.request_id %} &middot; Request ID <code>{{ e.request_id }}</code>{% endif %}</p>
     <pre>{{ e.pretty_body }}</pre>
     <pre>{% for k, v in e.headers.items() %}{{ k }}: {{ v }}
 {% endfor %}</pre>

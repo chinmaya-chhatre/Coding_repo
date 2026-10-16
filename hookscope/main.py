@@ -12,7 +12,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 
-from . import __version__, auth, metrics
+from . import __version__, auth, metrics, request_id
 from .config import Settings
 from .curl import build_curl, redacted_headers
 from .replay import InvalidTargetError, ReplayResult, replay_event
@@ -166,6 +166,15 @@ def create_app(
                 headers={"WWW-Authenticate": 'Basic realm="HookScope", charset="UTF-8"'},
             )
 
+    @app.middleware("http")
+    async def assign_request_id(request: Request, call_next):
+        # Registered after the password check, so it wraps it: even a 401 carries the id.
+        rid = request_id.accept_or_generate(request.headers.get(request_id.HEADER))
+        request.state.request_id = rid
+        response = await call_next(request)
+        response.headers[request_id.HEADER] = rid
+        return response
+
     @app.get(
         "/healthz",
         tags=["system"],
@@ -205,6 +214,7 @@ def create_app(
             raw_body=body,
             verification=result.status,
             reason=result.reason,
+            request_id=request.state.request_id,
         )
         challenge = _slack_challenge(source, body) if not result.rejected else None
         if challenge is not None:

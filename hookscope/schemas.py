@@ -61,6 +61,9 @@ class EventOut(BaseModel):
     body_base64: str | None = Field(
         description="The exact bytes received, base64-encoded; only set when the body is not valid UTF-8."
     )
+    request_id: str | None = Field(
+        description="`X-Request-ID` of the delivery (the sender's or a generated one); null for older events."
+    )
 
 
 class ForwardOut(BaseModel):

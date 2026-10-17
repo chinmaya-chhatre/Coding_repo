@@ -35,6 +35,18 @@ class HealthOut(BaseModel):
     version: str = Field(examples=["0.1.0"])
 
 
+class CheckOut(BaseModel):
+    ok: bool
+    latency_ms: float = Field(description="How long the check took.")
+    error: str | None = Field(default=None, description="Why it failed; absent when it passed.")
+
+
+class ReadyOut(BaseModel):
+    status: Literal["ready", "not_ready"]
+    version: str = Field(examples=["0.1.0"])
+    checks: dict[str, CheckOut] = Field(description="One entry per dependency, e.g. `database`.")
+
+
 class ReceiveOut(BaseModel):
     """What a provider gets back from `POST /hooks/{source}`."""
 

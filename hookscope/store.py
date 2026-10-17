@@ -96,6 +96,21 @@ class EventStore:
             )
             return int(cur.lastrowid)
 
+    def check_writable(self, timeout: float = 1.0) -> None:
+        """Raise ``sqlite3.Error`` unless a write transaction can be started right now.
+
+        ``BEGIN IMMEDIATE`` takes the write lock without changing anything, so this proves the
+        file can be opened, is not read-only and is not locked by a stuck writer, without adding
+        rows to a database that a load balancer probes every few seconds. It waits at most
+        ``timeout`` seconds, much less than the 5 seconds regular requests tolerate.
+        """
+        conn = sqlite3.connect(self.path, timeout=timeout, isolation_level=None)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute("ROLLBACK")
+        finally:
+            conn.close()
+
     def get(self, event_id: int) -> dict | None:
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()

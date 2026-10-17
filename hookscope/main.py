@@ -27,6 +27,7 @@ from .schemas import (
     HealthOut,
     PurgeOut,
     PurgeRequest,
+    ReadyOut,
     ReceiveOut,
     ReplayOut,
     ReplayRequest,
@@ -51,7 +52,7 @@ DASHBOARD_PAGE_SIZE = 100
 API_DESCRIPTION = (
     "Receives webhooks from GitHub, Stripe, Shopify, Slack, Twilio, Svix-style senders and "
     "generic HMAC senders; verifies their signatures; stores every delivery; and forwards, "
-    "retries and replays them. `/hooks/*` and `/healthz` are always public. When "
+    "retries and replays them. `/hooks/*`, `/healthz` and `/readyz` are always public. When "
     "`HOOKSCOPE_ADMIN_PASSWORD` is set, everything else, this page included, needs HTTP Basic "
     "(any username) or `Authorization: Bearer <password>`."
 )
@@ -192,7 +193,7 @@ def create_app(
             response = await call_next(request)
             response.headers[request_id.HEADER] = rid
             # Health checks run every few seconds; they stay out of the INFO log.
-            level = logging.DEBUG if request.url.path == "/healthz" else logging.INFO
+            level = logging.DEBUG if request.url.path in ("/healthz", "/readyz") else logging.INFO
             log.log(
                 level,
                 "request",
@@ -215,6 +216,36 @@ def create_app(
     )
     def healthz() -> dict:
         return {"status": "ok", "version": __version__}
+
+    @app.get(
+        "/readyz",
+        tags=["system"],
+        summary="Readiness check",
+        response_model=ReadyOut,
+        responses={503: {"model": ReadyOut, "description": "Not ready: do not route traffic here."}},
+    )
+    def readyz() -> JSONResponse:
+        """Whether this instance can do its job: today, whether the database accepts writes.
+
+        `/healthz` only says the process is up and costs nothing, so use it for liveness; use this
+        one to decide whether to route traffic here.
+        """
+        started = time.monotonic()
+        error = None
+        try:
+            store.check_writable()
+        except Exception as exc:  # any failure means "not ready", whatever its type
+            error = f"{type(exc).__name__}: {exc}"
+        check = {"ok": error is None, "latency_ms": round((time.monotonic() - started) * 1000, 1)}
+        if error:
+            check["error"] = error
+            log.warning("not ready", extra={"check": "database", "error": error})
+        body = {
+            "status": "ready" if error is None else "not_ready",
+            "version": __version__,
+            "checks": {"database": check},
+        }
+        return JSONResponse(body, status_code=200 if error is None else 503)
 
     @app.post(
         "/hooks/{source}",

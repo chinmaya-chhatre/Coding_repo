@@ -186,12 +186,13 @@ def test_rejected_deliveries_are_warnings_with_the_reason(monkeypatch, store):
         restore(before)
 
 
-def test_health_checks_are_debug_level_so_they_stay_out_of_the_info_log(monkeypatch, store):
+@pytest.mark.parametrize("path", ["/healthz", "/readyz"])
+def test_health_checks_are_debug_level_so_they_stay_out_of_the_info_log(monkeypatch, store, path):
     client, lines, before = run_app(monkeypatch, store)
     try:
-        client.get("/healthz")
+        client.get(path)
         [entry] = [e for e in lines() if e["message"] == "request"]
-        assert entry["level"] == "DEBUG" and entry["path"] == "/healthz"
+        assert entry["level"] == "DEBUG" and entry["path"] == path
     finally:
         restore(before)
 

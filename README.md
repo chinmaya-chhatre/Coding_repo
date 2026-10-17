@@ -30,6 +30,7 @@ a replayed request. HookScope makes each of those visible.
 - Web dashboard with per-source tabs, text search, date-range and signature-status filters, pretty-printed JSON and one-click replay, with "Older events" paging through the full history and a shareable page per event (`/events/{id}`) with a **Copy as curl** button that rebuilds the original request (`GET /api/events/{id}/curl`; credential headers are never stored, so they are left out)
 - A browser-only [signature lab](docs/demo/README.md) that signs a sample for every provider and lets you try to break it
 - Structured logs: set `HOOKSCOPE_LOG_FORMAT=json` for one JSON object per line (`HOOKSCOPE_LOG_LEVEL` sets the level), each carrying the request id, so a delivery can be followed from its access line through its forwards; event bodies, headers and secrets are never logged
+- Health endpoints for orchestrators: `GET /healthz` is a free liveness check; `GET /readyz` is a readiness check that proves the database accepts writes (without adding rows), answering 503 with the reason when it does not, so a load balancer stops routing to an instance that cannot store events
 - Request IDs: every response carries `X-Request-ID` (the caller's if it is short and made of safe characters, otherwise a generated one), it is stored on the event, shown on the event page and passed on to forward targets, so one delivery can be followed across your logs
 - Optional password protection for the dashboard, API and metrics (providers stay signature-only)
 - Hardening for a public `/hooks/*`: request bodies are size-capped (`413`, default 5 MiB) and
@@ -364,7 +365,7 @@ scheme and host HookScope sees match what Twilio signed.
 By default everything is open, which is fine on localhost. Before exposing HookScope to
 a network, set `HOOKSCOPE_ADMIN_PASSWORD`: the dashboard, `/api/*` (including replay and
 purge) and `/metrics` then require credentials, while `/hooks/*` stays public (providers
-are authenticated by their signatures) and so does `/healthz` (load balancer checks).
+are authenticated by their signatures) and so do `/healthz` and `/readyz` (load balancer and orchestrator checks).
 
 - Browsers get a login prompt (HTTP Basic: any username, the password above).
 - Scripts can send `Authorization: Bearer <password>` or `curl -u anyone:<password>`.
@@ -393,7 +394,7 @@ provider ──POST /hooks/{source}──▶ FastAPI ──▶ signatures.verify
 - `hookscope/store.py` — thin SQLite wrapper, indexed by receive time and source
 - `hookscope/schemas.py` — request and response models behind the OpenAPI document
 - `hookscope/config.py` — every `HOOKSCOPE_*` setting parsed and validated in one place
-- `hookscope/auth.py` — optional Basic/Bearer password for everything except `/hooks/*` and `/healthz`
+- `hookscope/auth.py` — optional Basic/Bearer password for everything except `/hooks/*`, `/healthz` and `/readyz`
 - `hookscope/metrics.py` — Prometheus text exposition built from stored counts
 - `hookscope/replay.py` — re-sends a stored event with its original headers
 - `hookscope/rules.py` — forwarding rules: parsing, matching and sending

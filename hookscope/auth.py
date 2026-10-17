@@ -2,9 +2,9 @@
 
 Set ``HOOKSCOPE_ADMIN_PASSWORD`` to require credentials everywhere except the endpoints
 that must stay public: ``/hooks/*`` (providers cannot log in; they are authenticated by
-their signatures) and ``/healthz`` (load balancer checks). Without it, everything is open,
-as before, which suits local use but not a public deployment: the API can replay events to
-arbitrary URLs and delete stored data.
+their signatures) and ``/healthz`` / ``/readyz`` (load balancer and orchestrator probes).
+Without it, everything is open, as before, which suits local use but not a public deployment:
+the API can replay events to arbitrary URLs and delete stored data.
 
 Credentials are HTTP Basic (any username, the password above), so browsers show a login
 prompt and the dashboard's own requests carry them, or ``Authorization: Bearer <password>``
@@ -20,7 +20,7 @@ import hmac
 from collections.abc import Mapping
 
 PUBLIC_PREFIXES = ("/hooks/",)
-PUBLIC_PATHS = frozenset({"/healthz"})
+PUBLIC_PATHS = frozenset({"/healthz", "/readyz"})
 
 
 def password_from_env(env: Mapping[str, str]) -> str | None:

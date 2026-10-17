@@ -30,6 +30,7 @@ a replayed request. HookScope makes each of those visible.
 - Web dashboard with per-source tabs, text search, date-range and signature-status filters, pretty-printed JSON and one-click replay, with "Older events" paging through the full history and a shareable page per event (`/events/{id}`) with a **Copy as curl** button that rebuilds the original request (`GET /api/events/{id}/curl`; credential headers are never stored, so they are left out)
 - A browser-only [signature lab](docs/demo/README.md) that signs a sample for every provider and lets you try to break it
 - Structured logs: set `HOOKSCOPE_LOG_FORMAT=json` for one JSON object per line (`HOOKSCOPE_LOG_LEVEL` sets the level), each carrying the request id, so a delivery can be followed from its access line through its forwards; event bodies, headers and secrets are never logged
+- SQLite in WAL mode by default: the dashboard and API read while deliveries are being stored, and writers wait their turn (`HOOKSCOPE_DB_BUSY_TIMEOUT_MS`) instead of failing with "database is locked"
 - Health endpoints for orchestrators: `GET /healthz` is a free liveness check; `GET /readyz` is a readiness check that proves the database accepts writes (without adding rows), answering 503 with the reason when it does not, so a load balancer stops routing to an instance that cannot store events
 - Request IDs: every response carries `X-Request-ID` (the caller's if it is short and made of safe characters, otherwise a generated one), it is stored on the event, shown on the event page and passed on to forward targets, so one delivery can be followed across your logs
 - Optional password protection for the dashboard, API and metrics (providers stay signature-only)
@@ -311,6 +312,11 @@ Then point a provider at `https://<your-app-name>.fly.dev/hooks/<source>`. Secre
 set with `fly secrets` so they never live in the repo; use one machine, since SQLite on a
 volume is not shared between machines.
 
+In WAL mode SQLite keeps two extra files next to the database (`hookscope.db-wal` and
+`hookscope.db-shm`). They belong together: back up with `sqlite3 hookscope.db ".backup copy.db"`,
+or copy all three files while HookScope is stopped, and keep the database on a local disk or
+volume rather than NFS (or set `HOOKSCOPE_DB_JOURNAL_MODE=delete`).
+
 ### Render
 
 `render.yaml` is a Render Blueprint: in the dashboard choose **New → Blueprint** and pick
@@ -329,6 +335,8 @@ values stop the app with one error that lists every problem, not just the first.
 | Variable | Purpose | Default |
 |---|---|---|
 | `HOOKSCOPE_DB` | SQLite file path | `hookscope.db` |
+| `HOOKSCOPE_DB_JOURNAL_MODE` | `wal` or `delete` (the classic journal, for network filesystems where WAL does not work) | `wal` |
+| `HOOKSCOPE_DB_BUSY_TIMEOUT_MS` | How long a connection waits for the database when another writer holds it | `5000` |
 | `HOOKSCOPE_LOG_FORMAT` | `text` or `json` (one JSON object per line, with the request id) | `text` |
 | `HOOKSCOPE_LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING`, `ERROR` or `CRITICAL` | `INFO` |
 | `HOOKSCOPE_SECRET_GITHUB` | GitHub webhook secret | unset |

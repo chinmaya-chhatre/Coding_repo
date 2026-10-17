@@ -103,7 +103,17 @@ def create_app(
     # Explicit arguments (used by tests and embedding) win over the environment.
     settings = Settings.from_env()
     logs.configure(settings.log_format, settings.log_level)
-    store = store or EventStore(settings.db_path)
+    if store is None:
+        store = EventStore(
+            settings.db_path,
+            journal_mode=settings.db_journal_mode,
+            busy_timeout_ms=settings.db_busy_timeout_ms,
+        )
+        if store.journal_mode != settings.db_journal_mode:  # e.g. WAL on a network filesystem
+            log.warning(
+                "journal mode not applied",
+                extra={"wanted": settings.db_journal_mode, "actual": store.journal_mode},
+            )
     secrets = settings.secrets if secrets is None else secrets
     http_client = http_client or httpx.Client(timeout=REPLAY_TIMEOUT_SECONDS)
     rules = load_rules(settings.rules_path) if rules is None else rules

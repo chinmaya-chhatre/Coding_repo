@@ -35,7 +35,7 @@ No backend: signatures are computed in the browser with Web Crypto.
 - [x] P1.08 Request-ID middleware: accept or generate `X-Request-ID`, return it, store it on the event
 - [x] P1.09 Structured JSON logs (`HOOKSCOPE_LOG_FORMAT=json`) carrying the request id
 - [x] P1.10 `/readyz` (database writable) alongside the cheap `/healthz`
-- [ ] P1.11 SQLite WAL mode and busy timeout; test concurrent writers
+- [x] P1.11 SQLite WAL mode and busy timeout; test concurrent writers
 - [ ] P1.12 One error shape (`{"error": {"code", "message"}}`) across the API, with tests
 - [ ] P1.13 Input hardening: caps on header count and size, strict `source` path characters
 - [ ] P1.14 Provider registry: each provider as one object (verifier, event type, event id, samples); replaces the scattered `if source ==` branches

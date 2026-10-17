@@ -43,16 +43,48 @@ CREATE INDEX IF NOT EXISTS events_source_id ON events(source, id);
 """
 
 
+JOURNAL_MODES = ("wal", "delete")
+DEFAULT_BUSY_TIMEOUT_MS = 5000
+
+
 class EventStore:
-    def __init__(self, path: str) -> None:
+    """SQLite storage for events and forward attempts.
+
+    By default the database runs in WAL (write-ahead log) mode: readers, such as the dashboard
+    and the API, no longer block the writer that stores a delivery, and a writer no longer blocks
+    them. Writers still take turns, so a connection that finds the database busy waits up to
+    ``busy_timeout_ms`` for its turn instead of failing at once with "database is locked".
+    ``journal_mode="delete"`` keeps SQLite's classic rollback journal, which is what to use on a
+    network filesystem, where WAL does not work.
+    """
+
+    def __init__(
+        self,
+        path: str,
+        journal_mode: str = "wal",
+        busy_timeout_ms: int = DEFAULT_BUSY_TIMEOUT_MS,
+    ) -> None:
+        if journal_mode not in JOURNAL_MODES:
+            raise ValueError(f"journal_mode must be one of {', '.join(JOURNAL_MODES)}, got {journal_mode!r}")
+        if busy_timeout_ms < 1:
+            raise ValueError("busy_timeout_ms must be positive")
         self.path = path
+        self.busy_timeout_ms = busy_timeout_ms
+        self.wal = journal_mode == "wal"
         with self._connect() as conn:
+            # The journal mode is stored in the database file; ask for it once. SQLite answers with
+            # the mode it actually set, which differs when the filesystem cannot do WAL.
+            self.journal_mode = conn.execute(f"PRAGMA journal_mode={journal_mode}").fetchone()[0].lower()
             conn.executescript(SCHEMA)
             _migrate(conn)
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(self.path)
+        conn = sqlite3.connect(self.path, timeout=self.busy_timeout_ms / 1000)
+        if self.wal:
+            # With a WAL, NORMAL still survives a crash of the process and only risks the last
+            # few commits on a power cut, in exchange for not syncing the disk on every write.
+            conn.execute("PRAGMA synchronous=NORMAL")
         conn.row_factory = sqlite3.Row
         try:
             yield conn

@@ -16,6 +16,7 @@ from . import auth
 from .logs import LOG_FORMATS, LOG_LEVELS
 from .retention import RetentionPolicy
 from .signatures import VERIFIERS
+from .store import DEFAULT_BUSY_TIMEOUT_MS, JOURNAL_MODES
 
 DEFAULT_DB_PATH = "hookscope.db"
 # Webhook payloads are small (GitHub caps its own at 25 MB and typical ones are a few KB).
@@ -59,6 +60,26 @@ def log_level_from_env(env: Mapping[str, str]) -> str:
     return raw
 
 
+def journal_mode_from_env(env: Mapping[str, str]) -> str:
+    raw = env.get("HOOKSCOPE_DB_JOURNAL_MODE", "").strip().lower() or "wal"
+    if raw not in JOURNAL_MODES:
+        raise ValueError(f"HOOKSCOPE_DB_JOURNAL_MODE must be one of {', '.join(JOURNAL_MODES)}, got {raw!r}")
+    return raw
+
+
+def busy_timeout_from_env(env: Mapping[str, str]) -> int:
+    raw = env.get("HOOKSCOPE_DB_BUSY_TIMEOUT_MS", "").strip()
+    if not raw:
+        return DEFAULT_BUSY_TIMEOUT_MS
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value < 1:
+        raise ValueError(f"HOOKSCOPE_DB_BUSY_TIMEOUT_MS must be a positive integer, got {raw!r}")
+    return value
+
+
 def secrets_from_env(env: Mapping[str, str]) -> dict[str, str]:
     """``HOOKSCOPE_SECRET_<SOURCE>`` for every supported source that has one set."""
     secrets = {}
@@ -77,6 +98,8 @@ class Settings:
     retention: RetentionPolicy = field(default_factory=RetentionPolicy)
     log_format: str = "text"
     log_level: str = "INFO"
+    db_journal_mode: str = "wal"
+    db_busy_timeout_ms: int = DEFAULT_BUSY_TIMEOUT_MS
     # Secrets stay out of repr() so logging a Settings object cannot leak them.
     secrets: dict[str, str] = field(default_factory=dict, repr=False)
     admin_password: str | None = field(default=None, repr=False)
@@ -102,6 +125,8 @@ class Settings:
             retention=attempt(lambda: RetentionPolicy.from_env(env), RetentionPolicy()),
             log_format=attempt(lambda: log_format_from_env(env), "text"),
             log_level=attempt(lambda: log_level_from_env(env), "INFO"),
+            db_journal_mode=attempt(lambda: journal_mode_from_env(env), "wal"),
+            db_busy_timeout_ms=attempt(lambda: busy_timeout_from_env(env), DEFAULT_BUSY_TIMEOUT_MS),
             secrets=secrets_from_env(env),
             admin_password=auth.password_from_env(env),
         )

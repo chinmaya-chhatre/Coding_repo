@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import TypeVar
 
 from . import auth
+from .logs import LOG_FORMATS, LOG_LEVELS
 from .retention import RetentionPolicy
 from .signatures import VERIFIERS
 
@@ -44,6 +45,20 @@ def max_body_bytes_from_env(env: Mapping[str, str]) -> int:
     return value
 
 
+def log_format_from_env(env: Mapping[str, str]) -> str:
+    raw = env.get("HOOKSCOPE_LOG_FORMAT", "").strip().lower() or "text"
+    if raw not in LOG_FORMATS:
+        raise ValueError(f"HOOKSCOPE_LOG_FORMAT must be one of {', '.join(LOG_FORMATS)}, got {raw!r}")
+    return raw
+
+
+def log_level_from_env(env: Mapping[str, str]) -> str:
+    raw = env.get("HOOKSCOPE_LOG_LEVEL", "").strip().upper() or "INFO"
+    if raw not in LOG_LEVELS:
+        raise ValueError(f"HOOKSCOPE_LOG_LEVEL must be one of {', '.join(LOG_LEVELS)}, got {raw!r}")
+    return raw
+
+
 def secrets_from_env(env: Mapping[str, str]) -> dict[str, str]:
     """``HOOKSCOPE_SECRET_<SOURCE>`` for every supported source that has one set."""
     secrets = {}
@@ -60,6 +75,8 @@ class Settings:
     rules_path: str | None = None
     max_body_bytes: int = DEFAULT_MAX_BODY_BYTES
     retention: RetentionPolicy = field(default_factory=RetentionPolicy)
+    log_format: str = "text"
+    log_level: str = "INFO"
     # Secrets stay out of repr() so logging a Settings object cannot leak them.
     secrets: dict[str, str] = field(default_factory=dict, repr=False)
     admin_password: str | None = field(default=None, repr=False)
@@ -83,6 +100,8 @@ class Settings:
             rules_path=env.get("HOOKSCOPE_RULES", "").strip() or None,
             max_body_bytes=attempt(lambda: max_body_bytes_from_env(env), DEFAULT_MAX_BODY_BYTES),
             retention=attempt(lambda: RetentionPolicy.from_env(env), RetentionPolicy()),
+            log_format=attempt(lambda: log_format_from_env(env), "text"),
+            log_level=attempt(lambda: log_level_from_env(env), "INFO"),
             secrets=secrets_from_env(env),
             admin_password=auth.password_from_env(env),
         )

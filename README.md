@@ -29,6 +29,7 @@ a replayed request. HookScope makes each of those visible.
 - Rejected deliveries return `401` **but are still stored**, so you can see why they failed
 - Web dashboard with per-source tabs, text search, date-range and signature-status filters, pretty-printed JSON and one-click replay, with "Older events" paging through the full history and a shareable page per event (`/events/{id}`) with a **Copy as curl** button that rebuilds the original request (`GET /api/events/{id}/curl`; credential headers are never stored, so they are left out)
 - A browser-only [signature lab](docs/demo/README.md) that signs a sample for every provider and lets you try to break it
+- Structured logs: set `HOOKSCOPE_LOG_FORMAT=json` for one JSON object per line (`HOOKSCOPE_LOG_LEVEL` sets the level), each carrying the request id, so a delivery can be followed from its access line through its forwards; event bodies, headers and secrets are never logged
 - Request IDs: every response carries `X-Request-ID` (the caller's if it is short and made of safe characters, otherwise a generated one), it is stored on the event, shown on the event page and passed on to forward targets, so one delivery can be followed across your logs
 - Optional password protection for the dashboard, API and metrics (providers stay signature-only)
 - Hardening for a public `/hooks/*`: request bodies are size-capped (`413`, default 5 MiB) and
@@ -327,6 +328,8 @@ values stop the app with one error that lists every problem, not just the first.
 | Variable | Purpose | Default |
 |---|---|---|
 | `HOOKSCOPE_DB` | SQLite file path | `hookscope.db` |
+| `HOOKSCOPE_LOG_FORMAT` | `text` or `json` (one JSON object per line, with the request id) | `text` |
+| `HOOKSCOPE_LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING`, `ERROR` or `CRITICAL` | `INFO` |
 | `HOOKSCOPE_SECRET_GITHUB` | GitHub webhook secret | unset |
 | `HOOKSCOPE_SECRET_STRIPE` | Stripe endpoint signing secret (`whsec_...`) | unset |
 | `HOOKSCOPE_SECRET_SHOPIFY` | Shopify app client secret (signs webhooks) | unset |

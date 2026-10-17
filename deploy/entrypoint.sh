@@ -9,6 +9,11 @@ set -ef  # -f: no globbing, so the "*" below reaches uvicorn literally
 data_dir="$(dirname "${HOOKSCOPE_DB:-/data/hookscope.db}")"
 cmd="uvicorn hookscope.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips=*"
 
+# JSON logs carry their own access line (with the request id), so uvicorn's plain one is dropped.
+if [ "${HOOKSCOPE_LOG_FORMAT:-text}" = "json" ]; then
+    cmd="$cmd --no-access-log"
+fi
+
 if [ "$(id -u)" = "0" ]; then
     mkdir -p "$data_dir"
     chown hookscope:hookscope "$data_dir"

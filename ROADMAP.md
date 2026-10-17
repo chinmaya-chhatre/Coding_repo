@@ -33,7 +33,7 @@ No backend: signatures are computed in the browser with Web Crypto.
 - [x] P1.06 Event permalink page `/events/{id}` (shareable detail view)
 - [x] P1.07 "Copy as curl": rebuild the original request from a stored event
 - [x] P1.08 Request-ID middleware: accept or generate `X-Request-ID`, return it, store it on the event
-- [ ] P1.09 Structured JSON logs (`HOOKSCOPE_LOG_FORMAT=json`) carrying the request id
+- [x] P1.09 Structured JSON logs (`HOOKSCOPE_LOG_FORMAT=json`) carrying the request id
 - [ ] P1.10 `/readyz` (database writable) alongside the cheap `/healthz`
 - [ ] P1.11 SQLite WAL mode and busy timeout; test concurrent writers
 - [ ] P1.12 One error shape (`{"error": {"code", "message"}}`) across the API, with tests

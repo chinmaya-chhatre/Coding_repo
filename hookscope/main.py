@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -12,7 +13,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 
-from . import __version__, auth, metrics, request_id
+from . import __version__, auth, logs, metrics, request_id
 from .config import Settings
 from .curl import build_curl, redacted_headers
 from .replay import InvalidTargetError, ReplayResult, replay_event
@@ -43,6 +44,7 @@ from .transform import InvalidTransformError, apply_transform, validate_mapping
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 # Keep mapping keys in rule order: the output document follows the order of its transform.
 TEMPLATES.env.policies["json.dumps_kwargs"] = {"sort_keys": False}
+log = logging.getLogger("hookscope")
 REPLAY_TIMEOUT_SECONDS = 10.0
 DASHBOARD_PAGE_SIZE = 100
 
@@ -99,6 +101,7 @@ def create_app(
 ) -> FastAPI:
     # Explicit arguments (used by tests and embedding) win over the environment.
     settings = Settings.from_env()
+    logs.configure(settings.log_format, settings.log_level)
     store = store or EventStore(settings.db_path)
     secrets = settings.secrets if secrets is None else secrets
     http_client = http_client or httpx.Client(timeout=REPLAY_TIMEOUT_SECONDS)
@@ -111,6 +114,18 @@ def create_app(
             return
 
         def record(rule: ForwardRule, attempt: int, result: ReplayResult) -> None:
+            log.log(
+                logging.INFO if result.ok else logging.WARNING,
+                "forward attempt",
+                extra={
+                    "event_id": event_id,
+                    "rule": rule.name,
+                    "attempt": attempt,
+                    "status_code": result.status_code,
+                    "elapsed_ms": result.elapsed_ms,
+                    "error": result.error or None,
+                },
+            )
             # Each attempt is stored as it completes, so retries show up while backing off.
             store.add_forward(
                 event_id,
@@ -171,9 +186,26 @@ def create_app(
         # Registered after the password check, so it wraps it: even a 401 carries the id.
         rid = request_id.accept_or_generate(request.headers.get(request_id.HEADER))
         request.state.request_id = rid
-        response = await call_next(request)
-        response.headers[request_id.HEADER] = rid
-        return response
+        token = logs.current_request_id.set(rid)
+        started = time.monotonic()
+        try:
+            response = await call_next(request)
+            response.headers[request_id.HEADER] = rid
+            # Health checks run every few seconds; they stay out of the INFO log.
+            level = logging.DEBUG if request.url.path == "/healthz" else logging.INFO
+            log.log(
+                level,
+                "request",
+                extra={
+                    "method": request.method,
+                    "path": request.url.path,
+                    "status": response.status_code,
+                    "duration_ms": round((time.monotonic() - started) * 1000, 1),
+                },
+            )
+            return response
+        finally:
+            logs.current_request_id.reset(token)
 
     @app.get(
         "/healthz",
@@ -215,6 +247,17 @@ def create_app(
             verification=result.status,
             reason=result.reason,
             request_id=request.state.request_id,
+        )
+        log.log(
+            logging.WARNING if result.rejected else logging.INFO,
+            "event received",
+            extra={
+                "event_id": event_id,
+                "source": source,
+                "verification": result.status,
+                "reason": result.reason or None,
+                "bytes": len(body),
+            },
         )
         challenge = _slack_challenge(source, body) if not result.rejected else None
         if challenge is not None:

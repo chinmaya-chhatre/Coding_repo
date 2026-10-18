@@ -281,6 +281,37 @@ scrape_configs:
 For example, alert when signatures start failing:
 `sum by (source) (rate(hookscope_deliveries_total{verification="invalid"}[5m])) > 0`.
 
+### API errors
+
+Every error the JSON API answers with has one shape, whatever its status:
+
+```json
+{"error": {"code": "event_not_found", "message": "event not found", "request_id": "8f3a..."}}
+```
+
+`code` is stable, so programs can switch on it; `message` is for people and may be reworded;
+`request_id` is the `X-Request-ID` of the request, to quote in a bug report or search the logs for.
+Validation errors (422) add `details`, one entry per invalid field (`{"field": "query.limit",
+"message": ..., "type": ...}`). Unexpected failures answer 500 `internal_error` and never expose internals.
+
+| Code | Status | When |
+|---|---|---|
+| `validation_error` | 422 | A parameter or body field is missing or the wrong type (see `details`) |
+| `event_not_found` | 404 | No event with that id |
+| `rule_not_found`, `forward_not_found` | 404 | No such forwarding rule, or the event was never forwarded by it |
+| `unknown_source` | 404 | `POST /hooks/<source>` with a source HookScope does not support |
+| `payload_too_large` | 413 | The body is over `HOOKSCOPE_MAX_BODY_BYTES` |
+| `authentication_required` | 401 | The admin password is set and the request has none (or a wrong one) |
+| `invalid_date`, `invalid_target`, `invalid_purge`, `invalid_transform`, `invalid_transform_request`, `rule_has_no_transform` | 422 | The request is well formed but cannot be done |
+| `no_retention_policy` | 400 | `POST /api/purge` with no rule and no configured policy |
+| `not_found`, `method_not_allowed` | 404, 405 | No such endpoint, or the wrong HTTP method for it |
+| `internal_error` | 500 | A bug; the `request_id` finds it in the logs |
+
+Two things are not errors in this sense: a webhook delivery that fails its signature check still answers
+with its usual receipt (`401` with `verification: "invalid"`, and the event is stored), and a replay or
+resend to an unreachable target answers `502` with the delivery result, whose `error` field is the text
+of what went wrong at the target.
+
 ### Docker
 
 ```bash

@@ -355,7 +355,7 @@ def test_preview_rejects_bad_requests(preview_client, payload, status, message):
     event_id = _stored(preview_client, {"type": "x"})
     resp = preview_client.post(f"/api/events/{event_id}/transform-preview", json=payload)
     assert resp.status_code == status
-    assert message in resp.json()["detail"]
+    assert message in resp.json()["error"]["message"]
 
 
 def test_preview_unknown_event(preview_client):

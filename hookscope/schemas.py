@@ -21,12 +21,30 @@ VERIFICATION_DESCRIPTION = (
 # ---------------------------------------------------------------------------------- responses
 
 
+class ErrorDetail(BaseModel):
+    field: str = Field(description="Where the problem is, e.g. `query.limit` or `body.target_url`.")
+    message: str
+    type: str = Field(description="Pydantic's name for the kind of problem.")
+
+
+class ErrorBody(BaseModel):
+    code: str = Field(
+        description="Stable and machine-readable: `event_not_found`, `validation_error`, ...",
+        examples=["event_not_found"],
+    )
+    message: str = Field(description="For people; may be reworded.", examples=["event not found"])
+    request_id: str | None = Field(default=None, description="The `X-Request-ID` of the failed request.")
+    details: list[ErrorDetail] | None = Field(default=None, description="Per-field problems, if any.")
+
+
 class ErrorOut(BaseModel):
-    detail: str = Field(description="What went wrong.")
+    """Every error the API answers with, whatever its status."""
+
+    error: ErrorBody
 
 
 def error_responses(*codes: int) -> dict[int | str, dict[str, Any]]:
-    """OpenAPI ``responses`` entries describing ``{"detail": ...}`` errors for these status codes."""
+    """OpenAPI ``responses`` entries for the standard ``{"error": {...}}`` body of these statuses."""
     return {code: {"model": ErrorOut} for code in codes}
 
 

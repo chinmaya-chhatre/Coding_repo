@@ -96,7 +96,7 @@
       try {
         const resp = await fetch(`/api/events/${box.dataset.eventId}/curl`);
         const data = await resp.json();
-        if (!resp.ok) throw new Error(data.detail || resp.status);
+        if (!resp.ok) throw new Error((data.error && data.error.message) || resp.status);
         output.textContent = data.command;
         output.hidden = false;
         try {
@@ -136,7 +136,7 @@
         const data = await resp.json();
         if (resp.status === 422 || resp.status === 404) {
           result.className = "replay-result err";
-          result.textContent = typeof data.detail === "string" ? data.detail : "Invalid request";
+          result.textContent = (data.error && data.error.message) || "Invalid request";
         } else if (data.status_code === null) {
           result.className = "replay-result err";
           result.textContent = `Could not reach target (${data.elapsed_ms} ms): ${data.error}`;
@@ -170,7 +170,7 @@
           return;
         }
         result.className = "dead-result fwd-err";
-        result.textContent = typeof data.detail === "string" ? ` ${data.detail}`
+        result.textContent = data.error && data.error.message ? ` ${data.error.message}`
           : data.status_code === null ? ` No response: ${data.error}` : ` HTTP ${data.status_code}`;
       } catch (err) {
         result.className = "dead-result fwd-err";
@@ -227,7 +227,7 @@
         });
         const data = await resp.json();
         if (!resp.ok) {
-          show("err", typeof data.detail === "string" ? data.detail : "Invalid mapping");
+          show("err", (data.error && data.error.message) || "Invalid mapping");
         } else if (data.matches === false) {
           show("warn", `Rule '${data.rule}' would not forward this event (its filters don't match); output if it did:`, data.output);
         } else if (data.matches) {

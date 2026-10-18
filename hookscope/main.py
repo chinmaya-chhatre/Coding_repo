@@ -9,13 +9,14 @@ from collections.abc import Callable
 from pathlib import Path
 
 import httpx
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 
-from . import __version__, auth, logs, metrics, request_id
+from . import __version__, auth, errors, logs, metrics, request_id
 from .config import Settings
 from .curl import build_curl, redacted_headers
+from .errors import ApiError
 from .replay import InvalidTargetError, ReplayResult, replay_event
 from .retention import Purger, RetentionPolicy
 from .rules import ForwardRule, deliver, event_type, forward_event, is_dead_letter, load_rules, matching_rules
@@ -176,6 +177,7 @@ def create_app(
         description=API_DESCRIPTION,
         openapi_tags=OPENAPI_TAGS,
     )
+    errors.install(app)
 
     password = settings.admin_password if admin_password is None else admin_password or None
     if password:
@@ -186,9 +188,11 @@ def create_app(
                 request.headers.get("authorization"), password
             ):
                 return await call_next(request)
-            return JSONResponse(
-                {"detail": "authentication required"},
-                status_code=401,
+            return errors.error_response(
+                request,
+                401,
+                "authentication_required",
+                "authentication required",
                 headers={"WWW-Authenticate": 'Basic realm="HookScope", charset="UTF-8"'},
             )
 
@@ -272,12 +276,16 @@ def create_app(
     )
     async def receive(source: str, request: Request, background: BackgroundTasks) -> JSONResponse:
         if source not in VERIFIERS:
-            raise HTTPException(404, f"unknown source '{source}'. Supported: {sorted(VERIFIERS)}")
+            raise ApiError(
+                404, "unknown_source", f"unknown source '{source}'. Supported: {sorted(VERIFIERS)}"
+            )
 
         try:
             body = await read_body_limited(request, body_limit)
         except BodyTooLargeError:
-            raise HTTPException(413, f"request body exceeds the {body_limit} byte limit") from None
+            raise ApiError(
+                413, "payload_too_large", f"request body exceeds the {body_limit} byte limit"
+            ) from None
         headers = dict(request.headers)
         result = verify(source, body, headers, secrets.get(source), url=str(request.url))
         event_id = store.add(
@@ -373,7 +381,7 @@ def create_app(
                 before_id=before_id,
             )
         except ValueError as exc:
-            raise HTTPException(422, f"since/until must be ISO dates or datetimes: {exc}") from exc
+            raise ApiError(422, "invalid_date", f"since/until must be ISO dates or datetimes: {exc}") from exc
         if limit >= 1 and len(events) > limit:
             events = events[:limit]
             response.headers["X-Next-Cursor"] = str(events[-1]["id"])
@@ -389,7 +397,7 @@ def create_app(
     def get_event(event_id: int) -> dict:
         event = store.get(event_id)
         if event is None:
-            raise HTTPException(404, "event not found")
+            raise ApiError(404, "event_not_found", "event not found")
         return event
 
     @app.get(
@@ -403,7 +411,7 @@ def create_app(
         """The stored headers and exact body, aimed at this server's `/hooks/<source>`."""
         event = store.get(event_id)
         if event is None:
-            raise HTTPException(404, "event not found")
+            raise ApiError(404, "event_not_found", "event not found")
         return {
             "command": build_curl(event, str(request.base_url)),
             "omitted_headers": redacted_headers(event),
@@ -418,7 +426,7 @@ def create_app(
     )
     def list_forwards(event_id: int) -> list[dict]:
         if store.get(event_id) is None:
-            raise HTTPException(404, "event not found")
+            raise ApiError(404, "event_not_found", "event not found")
         return store.list_forwards(event_id)
 
     @app.get(
@@ -444,13 +452,15 @@ def create_app(
     def resend_forward(event_id: int, rule_name: str) -> JSONResponse:
         event = store.get(event_id)
         if event is None:
-            raise HTTPException(404, "event not found")
+            raise ApiError(404, "event_not_found", "event not found")
         rule = next((r for r in rules if r.name == rule_name), None)
         if rule is None:
-            raise HTTPException(404, f"unknown rule '{rule_name}'")
+            raise ApiError(404, "rule_not_found", f"unknown rule '{rule_name}'")
         history = [f for f in store.list_forwards(event_id) if f["rule"] == rule_name]
         if not history:
-            raise HTTPException(404, f"event {event_id} was never forwarded by rule '{rule_name}'")
+            raise ApiError(
+                404, "forward_not_found", f"event {event_id} was never forwarded by rule '{rule_name}'"
+            )
         result = forward_event(event, rule, http_client)
         attempt = history[-1]["attempt"] + 1
         store.add_forward(
@@ -483,12 +493,13 @@ def create_app(
             try:
                 removed = store.purge(older_than=payload.older_than, keep_last=payload.keep_last)
             except ValueError as exc:
-                raise HTTPException(422, str(exc)) from exc
+                raise ApiError(422, "invalid_purge", str(exc)) from exc
         elif purger.policy.enabled:
             removed = purger.run()
         else:
-            raise HTTPException(
+            raise ApiError(
                 400,
+                "no_retention_policy",
                 "no retention policy configured; pass older_than and/or keep_last, or set "
                 "HOOKSCOPE_RETENTION_DAYS / HOOKSCOPE_MAX_EVENTS",
             )
@@ -507,11 +518,11 @@ def create_app(
     def replay(event_id: int, payload: ReplayRequest) -> JSONResponse:
         event = store.get(event_id)
         if event is None:
-            raise HTTPException(404, "event not found")
+            raise ApiError(404, "event_not_found", "event not found")
         try:
             result = replay_event(event, payload.target_url, http_client)
         except InvalidTargetError as exc:
-            raise HTTPException(422, str(exc)) from exc
+            raise ApiError(422, "invalid_target", str(exc)) from exc
         # 502 when the target could not be reached at all; otherwise pass the outcome through.
         return JSONResponse(result.to_dict(), status_code=502 if result.status_code is None else 200)
 
@@ -525,22 +536,26 @@ def create_app(
     def preview_transform(event_id: int, payload: TransformPreviewRequest) -> dict:
         event = store.get(event_id)
         if event is None:
-            raise HTTPException(404, "event not found")
+            raise ApiError(404, "event_not_found", "event not found")
         if (payload.rule is None) == (payload.transform is None):
-            raise HTTPException(422, "send exactly one of 'rule' (a rule name) or 'transform' (a mapping)")
+            raise ApiError(
+                422,
+                "invalid_transform_request",
+                "send exactly one of 'rule' (a rule name) or 'transform' (a mapping)",
+            )
         rule = None
         mapping = payload.transform
         if payload.rule is not None:
             rule = next((r for r in rules if r.name == payload.rule), None)
             if rule is None:
-                raise HTTPException(404, f"unknown rule '{payload.rule}'")
+                raise ApiError(404, "rule_not_found", f"unknown rule '{payload.rule}'")
             if rule.transform is None:
-                raise HTTPException(422, f"rule '{rule.name}' has no transform")
+                raise ApiError(422, "rule_has_no_transform", f"rule '{rule.name}' has no transform")
             mapping = rule.transform
         try:
             validate_mapping(mapping)
         except InvalidTransformError as exc:
-            raise HTTPException(422, str(exc)) from exc
+            raise ApiError(422, "invalid_transform", str(exc)) from exc
         kind = event_type(event)
         return {
             "event_id": event_id,

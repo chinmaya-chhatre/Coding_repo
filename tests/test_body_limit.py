@@ -27,7 +27,7 @@ def test_body_at_the_limit_is_accepted(client, store):
 def test_body_over_the_limit_is_rejected_and_not_stored(client, store):
     resp = client.post("/hooks/generic", content=b"x" * (LIMIT + 1))
     assert resp.status_code == 413
-    assert str(LIMIT) in resp.json()["detail"]
+    assert str(LIMIT) in resp.json()["error"]["message"]
     assert store.count() == 0
 
 

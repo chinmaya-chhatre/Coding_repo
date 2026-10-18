@@ -21,6 +21,10 @@ from .store import DEFAULT_BUSY_TIMEOUT_MS, JOURNAL_MODES
 DEFAULT_DB_PATH = "hookscope.db"
 # Webhook payloads are small (GitHub caps its own at 25 MB and typical ones are a few KB).
 DEFAULT_MAX_BODY_BYTES = 5 * 1024 * 1024
+# Providers send a dozen or so headers; proxies add a few more. These are generous ceilings, there to
+# stop a client that sends thousands of headers (or one enormous one) from filling the database.
+DEFAULT_MAX_HEADERS = 100
+DEFAULT_MAX_HEADER_BYTES = 32 * 1024
 
 T = TypeVar("T")
 
@@ -43,6 +47,19 @@ def max_body_bytes_from_env(env: Mapping[str, str]) -> int:
         value = 0
     if value < 1:
         raise ValueError(f"HOOKSCOPE_MAX_BODY_BYTES must be a positive integer, got {raw!r}")
+    return value
+
+
+def positive_int_from_env(env: Mapping[str, str], name: str, default: int) -> int:
+    raw = env.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value < 1:
+        raise ValueError(f"{name} must be a positive integer, got {raw!r}")
     return value
 
 
@@ -98,6 +115,8 @@ class Settings:
     retention: RetentionPolicy = field(default_factory=RetentionPolicy)
     log_format: str = "text"
     log_level: str = "INFO"
+    max_headers: int = DEFAULT_MAX_HEADERS
+    max_header_bytes: int = DEFAULT_MAX_HEADER_BYTES
     db_journal_mode: str = "wal"
     db_busy_timeout_ms: int = DEFAULT_BUSY_TIMEOUT_MS
     # Secrets stay out of repr() so logging a Settings object cannot leak them.
@@ -125,6 +144,14 @@ class Settings:
             retention=attempt(lambda: RetentionPolicy.from_env(env), RetentionPolicy()),
             log_format=attempt(lambda: log_format_from_env(env), "text"),
             log_level=attempt(lambda: log_level_from_env(env), "INFO"),
+            max_headers=attempt(
+                lambda: positive_int_from_env(env, "HOOKSCOPE_MAX_HEADERS", DEFAULT_MAX_HEADERS),
+                DEFAULT_MAX_HEADERS,
+            ),
+            max_header_bytes=attempt(
+                lambda: positive_int_from_env(env, "HOOKSCOPE_MAX_HEADER_BYTES", DEFAULT_MAX_HEADER_BYTES),
+                DEFAULT_MAX_HEADER_BYTES,
+            ),
             db_journal_mode=attempt(lambda: journal_mode_from_env(env), "wal"),
             db_busy_timeout_ms=attempt(lambda: busy_timeout_from_env(env), DEFAULT_BUSY_TIMEOUT_MS),
             secrets=secrets_from_env(env),

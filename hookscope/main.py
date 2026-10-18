@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Annotated
 
 import httpx
-from fastapi import BackgroundTasks, FastAPI, Request
+from fastapi import BackgroundTasks, FastAPI, Query, Request
+from fastapi import Path as PathParam
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 
@@ -47,6 +50,27 @@ TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 # Keep mapping keys in rule order: the output document follows the order of its transform.
 TEMPLATES.env.policies["json.dumps_kwargs"] = {"sort_keys": False}
 log = logging.getLogger("hookscope")
+
+# Provider names are short lowercase words; anything else is refused before it can reach a log line.
+SOURCE_PATTERN = re.compile(r"[a-z][a-z0-9_-]{0,31}")
+# SQLite integers are 64-bit: a larger id in a query would raise inside the driver and become a 500.
+MAX_ID = 2**63 - 1
+EventId = Annotated[int, PathParam(ge=1, le=MAX_ID, description="The event's id.")]
+PageSize = Annotated[int, Query(ge=1, description="How many to return (at most 500).")]
+BeforeId = Annotated[int | None, Query(ge=0, le=MAX_ID, description="Only events with a smaller id.")]
+SearchText = Annotated[str | None, Query(max_length=200, description="Text to find in bodies and headers.")]
+ShortText = Annotated[str | None, Query(max_length=64)]
+
+
+def header_problem(request: Request, max_headers: int, max_bytes: int) -> str | None:
+    """Why this request's headers are too big, or None. Counts name, value and separators."""
+    raw = request.scope["headers"]
+    if len(raw) > max_headers:
+        return f"too many headers: {len(raw)} (the limit is {max_headers})"
+    size = sum(len(name) + len(value) + 4 for name, value in raw)
+    if size > max_bytes:
+        return f"headers are {size} bytes (the limit is {max_bytes})"
+    return None
 REPLAY_TIMEOUT_SECONDS = 10.0
 DASHBOARD_PAGE_SIZE = 100
 
@@ -100,6 +124,8 @@ def create_app(
     retention: RetentionPolicy | None = None,
     admin_password: str | None = None,
     max_body_bytes: int | None = None,
+    max_headers: int | None = None,
+    max_header_bytes: int | None = None,
 ) -> FastAPI:
     # Explicit arguments (used by tests and embedding) win over the environment.
     settings = Settings.from_env()
@@ -178,6 +204,10 @@ def create_app(
         openapi_tags=OPENAPI_TAGS,
     )
     errors.install(app)
+    header_limit = (
+        settings.max_headers if max_headers is None else max_headers,
+        settings.max_header_bytes if max_header_bytes is None else max_header_bytes,
+    )
 
     password = settings.admin_password if admin_password is None else admin_password or None
     if password:
@@ -275,10 +305,13 @@ def create_app(
         },
     )
     async def receive(source: str, request: Request, background: BackgroundTasks) -> JSONResponse:
-        if source not in VERIFIERS:
+        if not SOURCE_PATTERN.fullmatch(source) or source not in VERIFIERS:
+            # repr() keeps control characters from reaching the message or a log; clip a huge one.
             raise ApiError(
-                404, "unknown_source", f"unknown source '{source}'. Supported: {sorted(VERIFIERS)}"
+                404, "unknown_source", f"unknown source {source[:40]!r}. Supported: {sorted(VERIFIERS)}"
             )
+        if (problem := header_problem(request, *header_limit)) is not None:
+            raise ApiError(431, "headers_too_large", problem)
 
         try:
             body = await read_body_limited(request, body_limit)
@@ -359,13 +392,13 @@ def create_app(
     )
     def list_events(
         response: Response,
-        limit: int = 50,
-        source: str | None = None,
-        q: str | None = None,
-        since: str | None = None,
-        until: str | None = None,
-        verification: str | None = None,
-        before_id: int | None = None,
+        limit: PageSize = 50,
+        source: ShortText = None,
+        q: SearchText = None,
+        since: ShortText = None,
+        until: ShortText = None,
+        verification: ShortText = None,
+        before_id: BeforeId = None,
     ) -> list[dict]:
         """Newest first. When more events match, `X-Next-Cursor` holds the `before_id` for the next page."""
         limit = min(limit, 500)
@@ -394,7 +427,7 @@ def create_app(
         response_model=EventOut,
         responses=error_responses(404),
     )
-    def get_event(event_id: int) -> dict:
+    def get_event(event_id: EventId) -> dict:
         event = store.get(event_id)
         if event is None:
             raise ApiError(404, "event_not_found", "event not found")
@@ -407,7 +440,7 @@ def create_app(
         response_model=CurlOut,
         responses=error_responses(404),
     )
-    def event_as_curl(event_id: int, request: Request) -> dict:
+    def event_as_curl(event_id: EventId, request: Request) -> dict:
         """The stored headers and exact body, aimed at this server's `/hooks/<source>`."""
         event = store.get(event_id)
         if event is None:
@@ -424,7 +457,7 @@ def create_app(
         response_model=list[ForwardOut],
         responses=error_responses(404),
     )
-    def list_forwards(event_id: int) -> list[dict]:
+    def list_forwards(event_id: EventId) -> list[dict]:
         if store.get(event_id) is None:
             raise ApiError(404, "event_not_found", "event not found")
         return store.list_forwards(event_id)
@@ -435,7 +468,7 @@ def create_app(
         summary="List dead letters",
         response_model=list[DeadLetterOut],
     )
-    def list_dead_letters(limit: int = 100) -> list[dict]:
+    def list_dead_letters(limit: PageSize = 100) -> list[dict]:
         """Forwards whose latest attempt failed for good (retries exhausted or a permanent error)."""
         return dead_letters(min(limit, 500))
 
@@ -449,7 +482,7 @@ def create_app(
             **error_responses(404),
         },
     )
-    def resend_forward(event_id: int, rule_name: str) -> JSONResponse:
+    def resend_forward(event_id: EventId, rule_name: str) -> JSONResponse:
         event = store.get(event_id)
         if event is None:
             raise ApiError(404, "event_not_found", "event not found")
@@ -515,7 +548,7 @@ def create_app(
             **error_responses(404, 422),
         },
     )
-    def replay(event_id: int, payload: ReplayRequest) -> JSONResponse:
+    def replay(event_id: EventId, payload: ReplayRequest) -> JSONResponse:
         event = store.get(event_id)
         if event is None:
             raise ApiError(404, "event_not_found", "event not found")
@@ -533,7 +566,7 @@ def create_app(
         response_model=TransformPreviewOut,
         responses=error_responses(404, 422),
     )
-    def preview_transform(event_id: int, payload: TransformPreviewRequest) -> dict:
+    def preview_transform(event_id: EventId, payload: TransformPreviewRequest) -> dict:
         event = store.get(event_id)
         if event is None:
             raise ApiError(404, "event_not_found", "event not found")
@@ -574,12 +607,12 @@ def create_app(
     )
     def dashboard(
         request: Request,
-        source: str | None = None,
-        q: str | None = None,
-        since: str | None = None,
-        until: str | None = None,
-        verification: str | None = None,
-        before_id: int | None = None,
+        source: ShortText = None,
+        q: SearchText = None,
+        since: ShortText = None,
+        until: ShortText = None,
+        verification: ShortText = None,
+        before_id: BeforeId = None,
     ) -> HTMLResponse:
         # Empty form fields arrive as "", which means "no filter".
         filters = {"q": q or None, "since": since or None, "until": until or None,
@@ -624,7 +657,7 @@ def create_app(
         response_class=HTMLResponse,
         responses={404: {"description": "No such event (an HTML page).", "content": {"text/html": {}}}},
     )
-    def event_page(event_id: int, request: Request) -> HTMLResponse:
+    def event_page(event_id: EventId, request: Request) -> HTMLResponse:
         """A shareable page for one event: body, headers, forwards, replay and transform preview."""
         event = store.get(event_id)
         if event is not None:

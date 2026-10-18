@@ -301,6 +301,7 @@ Validation errors (422) add `details`, one entry per invalid field (`{"field": "
 | `rule_not_found`, `forward_not_found` | 404 | No such forwarding rule, or the event was never forwarded by it |
 | `unknown_source` | 404 | `POST /hooks/<source>` with a source HookScope does not support |
 | `payload_too_large` | 413 | The body is over `HOOKSCOPE_MAX_BODY_BYTES` |
+| `headers_too_large` | 431 | More than `HOOKSCOPE_MAX_HEADERS` headers, or over `HOOKSCOPE_MAX_HEADER_BYTES` in total |
 | `authentication_required` | 401 | The admin password is set and the request has none (or a wrong one) |
 | `invalid_date`, `invalid_target`, `invalid_purge`, `invalid_transform`, `invalid_transform_request`, `rule_has_no_transform` | 422 | The request is well formed but cannot be done |
 | `no_retention_policy` | 400 | `POST /api/purge` with no rule and no configured policy |
@@ -376,6 +377,8 @@ values stop the app with one error that lists every problem, not just the first.
 | `HOOKSCOPE_SECRET_SLACK` | Slack app signing secret | unset |
 | `HOOKSCOPE_SECRET_TWILIO` | Twilio account auth token | unset |
 | `HOOKSCOPE_MAX_BODY_BYTES` | Largest webhook body accepted on `/hooks/*` (larger gets `413`) | `5242880` (5 MiB) |
+| `HOOKSCOPE_MAX_HEADERS` | Most request headers accepted on `/hooks/*` (more gets `431`) | `100` |
+| `HOOKSCOPE_MAX_HEADER_BYTES` | Most total header bytes accepted on `/hooks/*` (more gets `431`) | `32768` |
 | `HOOKSCOPE_ADMIN_PASSWORD` | Password for the dashboard, JSON API and `/metrics` | unset (open) |
 | `HOOKSCOPE_SECRET_SVIX` | Svix / Standard Webhooks endpoint secret (`whsec_...`) | unset |
 | `HOOKSCOPE_SECRET_GENERIC` | Shared secret for `X-Signature` | unset |

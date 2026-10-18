@@ -35,6 +35,7 @@ DEFAULT_CODES = {
     415: "unsupported_media_type",
     422: "validation_error",
     429: "rate_limited",
+    431: "headers_too_large",
     500: "internal_error",
     502: "bad_gateway",
     503: "unavailable",

@@ -38,7 +38,8 @@ No backend: signatures are computed in the browser with Web Crypto.
 - [x] P1.11 SQLite WAL mode and busy timeout; test concurrent writers
 - [x] P1.12 One error shape (`{"error": {"code", "message"}}`) across the API, with tests
 - [x] P1.13 Input hardening: caps on header count and size, strict `source` path characters
-- [ ] P1.14 Provider registry: each provider as one object (verifier, event type, event id, samples); replaces the scattered `if source ==` branches
+- [x] P1.14 Provider registry: each provider as one object (verifier, URL signing, timestamp header, event type); replaces the scattered `if source ==` branches in rules and curl
+- [ ] P1.14b Provider registry, part 2: event id and a signed sample per provider, with a consumer for each (the `/api/providers` listing)
 
 ## P2 Signature failure explainer (12)
 - [ ] P2.01 `diagnostics` module: `Diagnosis(cause, message, fix)`, run only for `invalid` / `unsigned` events

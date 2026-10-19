@@ -13,7 +13,7 @@ import binascii
 import hashlib
 import hmac
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from urllib.parse import parse_qs, parse_qsl, urlparse
 
@@ -211,27 +211,3 @@ def verify_twilio(body: bytes, headers: Mapping[str, str], secret: str, url: str
     if not hmac.compare_digest(base64.b64encode(digest).decode(), received):
         return VerificationResult("invalid", "signature mismatch (check the public URL Twilio calls)")
     return VerificationResult("valid")
-
-
-# Providers whose signature covers the request URL, so the verifier needs it.
-URL_SIGNED = {"twilio"}
-
-VERIFIERS: dict[str, Callable[..., VerificationResult]] = {
-    "github": verify_github,
-    "stripe": verify_stripe,
-    "shopify": verify_shopify,
-    "slack": verify_slack,
-    "twilio": verify_twilio,
-    "svix": verify_svix,
-    "generic": verify_generic,
-}
-
-
-def verify(
-    source: str, body: bytes, headers: Mapping[str, str], secret: str | None, url: str = ""
-) -> VerificationResult:
-    if not secret:
-        return VerificationResult("no_secret", f"no secret configured for '{source}'")
-    if source in URL_SIGNED:
-        return VERIFIERS[source](body, headers, secret, url)
-    return VERIFIERS[source](body, headers, secret)

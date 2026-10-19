@@ -433,6 +433,7 @@ provider ──POST /hooks/{source}──▶ FastAPI ──▶ signatures.verify
 ```
 
 - `hookscope/signatures.py` — one pure function per provider, easy to unit test
+- `hookscope/providers.py` — the provider registry: each provider's verifier, URL-signing, timestamp header and event-type location in one object; adding a provider means adding one entry
 - `hookscope/store.py` — thin SQLite wrapper, indexed by receive time and source
 - `hookscope/schemas.py` — request and response models behind the OpenAPI document
 - `hookscope/config.py` — every `HOOKSCOPE_*` setting parsed and validated in one place

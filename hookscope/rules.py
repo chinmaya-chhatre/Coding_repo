@@ -52,6 +52,7 @@ from pathlib import Path
 
 import httpx
 
+from .providers import PROVIDERS
 from .replay import (
     REPLAY_HEADER,
     InvalidTargetError,
@@ -60,7 +61,6 @@ from .replay import (
     replay_headers,
     validate_target,
 )
-from .signatures import VERIFIERS
 from .slack import slack_message
 from .transform import InvalidTransformError, apply_transform, validate_mapping
 
@@ -154,15 +154,12 @@ class ForwardRule:
         }
 
 
-# Providers that send the event type in a header rather than in the body.
-EVENT_TYPE_HEADERS = {"github": "x-github-event", "shopify": "x-shopify-topic"}
-
-
 def event_type(event: dict) -> str | None:
     """Provider-specific event type: a header for GitHub (``X-GitHub-Event``) and Shopify
     (``X-Shopify-Topic``), the inner ``event.type`` for Slack ``event_callback`` payloads,
     else the JSON body's ``type``."""
-    header = EVENT_TYPE_HEADERS.get(event["source"])
+    provider = PROVIDERS.get(event["source"])
+    header = provider.event_type_header if provider else None
     if header:
         for key, value in event["headers"].items():
             if key.lower() == header:
@@ -174,8 +171,8 @@ def event_type(event: dict) -> str | None:
         return None
     if not isinstance(payload, dict):
         return None
-    if event["source"] == "slack" and payload.get("type") == "event_callback":
-        inner = payload.get("event")
+    if provider and provider.event_envelope and payload.get("type") == provider.event_envelope[0]:
+        inner = payload.get(provider.event_envelope[1])
         payload = inner if isinstance(inner, dict) else {}
     value = payload.get("type")
     return value if isinstance(value, str) else None
@@ -209,8 +206,8 @@ def parse_rules(data: object) -> list[ForwardRule]:
             raise InvalidRuleError(f"rule '{name}': {exc}") from exc
 
         source = raw.get("source")
-        if source is not None and source not in VERIFIERS:
-            supported = sorted(VERIFIERS)
+        if source is not None and source not in PROVIDERS:
+            supported = sorted(PROVIDERS)
             raise InvalidRuleError(f"rule '{name}': unknown source '{source}'. Supported: {supported}")
 
         event_types = raw.get("event_types", [])

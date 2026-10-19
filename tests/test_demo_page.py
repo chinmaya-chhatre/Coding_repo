@@ -8,7 +8,7 @@ from urllib.parse import parse_qsl
 
 import pytest
 
-from hookscope import signatures
+from hookscope import providers, signatures
 
 ROOT = Path(__file__).parent.parent
 DEMO = ROOT / "docs" / "demo"
@@ -28,7 +28,7 @@ def pages() -> dict[str, str]:
 
 
 def test_demo_covers_every_provider_hookscope_verifies():
-    assert {p["id"] for p in PROVIDERS} == set(signatures.VERIFIERS)
+    assert {p["id"] for p in PROVIDERS} == set(providers.PROVIDERS)
 
 
 def test_every_provider_has_what_the_page_renders():

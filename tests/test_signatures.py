@@ -5,8 +5,8 @@ from urllib.parse import urlencode
 
 import pytest
 
+from hookscope.providers import verify
 from hookscope.signatures import (
-    verify,
     verify_github,
     verify_shopify,
     verify_slack,

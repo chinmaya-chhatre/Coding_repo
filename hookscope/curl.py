@@ -10,14 +10,13 @@ from __future__ import annotations
 
 import shlex
 
+from .providers import PROVIDERS
 from .store import REDACTED
 
 # Added by the client or the connection, not part of what the sender chose to send.
 TRANSPORT_HEADERS = frozenset(
     {"host", "content-length", "connection", "keep-alive", "accept-encoding", "transfer-encoding", "expect"}
 )
-# Providers whose signature carries a timestamp that verifiers only accept for a short while.
-TIMESTAMPED = {"stripe": "Stripe-Signature", "slack": "X-Slack-Signature", "svix": "svix-signature"}
 
 
 def redacted_headers(event: dict) -> list[str]:
@@ -32,14 +31,14 @@ def build_curl(event: dict, base_url: str) -> str:
     omitted = redacted_headers(event)
     if omitted:
         notes.append(f"Not included, because credentials are never stored: {', '.join(omitted)}.")
-    if source in TIMESTAMPED:
+    provider = PROVIDERS.get(source)
+    if provider and provider.timestamp_header:
         notes.append(
-            f"{TIMESTAMPED[source]} carries a timestamp: it only verifies for a few minutes after sending."
+            f"{provider.timestamp_header} carries a timestamp: "
+            "it only verifies for a few minutes after sending."
         )
-    if source == "twilio":
-        notes.append(
-            "Twilio signs the full public URL: use the URL Twilio was configured with, not this one."
-        )
+    if provider and provider.replay_note:
+        notes.append(provider.replay_note)
 
     parts = ["curl -sS -X POST " + shlex.quote(url)]
     for name, value in event["headers"].items():

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from hookscope import signatures
+from hookscope import providers as registry
 
 pytestmark = pytest.mark.skipif(
     shutil.which("node") is None, reason="Node.js is needed to run the demo's signing code"
@@ -113,7 +113,7 @@ def test_every_demo_provider_verifies_in_hookscope():
     ]
     for provider, signed in zip(providers, sign_all(jobs), strict=True):
         headers = {"Content-Type": provider["contentType"], **provider["extraHeaders"], **signed["headers"]}
-        result = signatures.verify(
+        result = registry.verify(
             provider["id"],
             provider["body"].encode(),
             headers,
@@ -131,7 +131,7 @@ def test_changing_a_byte_makes_hookscope_reject_the_signature():
         signed = sign_one(
             provider["id"], body=provider["body"], secret=provider["secret"], url=provider.get("url", "")
         )
-        result = signatures.verify(
+        result = registry.verify(
             provider["id"],
             tampered.encode(),
             signed["headers"],
@@ -205,7 +205,7 @@ def _python_verdict(provider: dict, case: dict) -> dict:
         timestamp=case["sent_at"],
     )
     kwargs = {"now": NOW} if provider["id"] in TIMED else {}
-    func = signatures.VERIFIERS[provider["id"]]
+    func = registry.PROVIDERS[provider["id"]].verify
     args = (case["body"].encode(), signed["headers"], case["secret"])
     result = func(*args, case["url"]) if provider["id"] == "twilio" else func(*args, **kwargs)
     return {"status": result.status, "reason": result.reason}

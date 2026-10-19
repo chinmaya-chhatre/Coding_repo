@@ -14,8 +14,8 @@ from typing import TypeVar
 
 from . import auth
 from .logs import LOG_FORMATS, LOG_LEVELS
+from .providers import PROVIDERS
 from .retention import RetentionPolicy
-from .signatures import VERIFIERS
 from .store import DEFAULT_BUSY_TIMEOUT_MS, JOURNAL_MODES
 
 DEFAULT_DB_PATH = "hookscope.db"
@@ -100,7 +100,7 @@ def busy_timeout_from_env(env: Mapping[str, str]) -> int:
 def secrets_from_env(env: Mapping[str, str]) -> dict[str, str]:
     """``HOOKSCOPE_SECRET_<SOURCE>`` for every supported source that has one set."""
     secrets = {}
-    for source in VERIFIERS:
+    for source in PROVIDERS:
         value = env.get(f"HOOKSCOPE_SECRET_{source.upper()}")
         if value:
             secrets[source] = value

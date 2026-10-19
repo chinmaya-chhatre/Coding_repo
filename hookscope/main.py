@@ -20,6 +20,7 @@ from . import __version__, auth, errors, logs, metrics, request_id
 from .config import Settings
 from .curl import build_curl, redacted_headers
 from .errors import ApiError
+from .providers import PROVIDERS, verify
 from .replay import InvalidTargetError, ReplayResult, replay_event
 from .retention import Purger, RetentionPolicy
 from .rules import ForwardRule, deliver, event_type, forward_event, is_dead_letter, load_rules, matching_rules
@@ -42,7 +43,6 @@ from .schemas import (
     TransformPreviewRequest,
     error_responses,
 )
-from .signatures import VERIFIERS, verify
 from .store import EventStore
 from .transform import InvalidTransformError, apply_transform, validate_mapping
 
@@ -305,10 +305,10 @@ def create_app(
         },
     )
     async def receive(source: str, request: Request, background: BackgroundTasks) -> JSONResponse:
-        if not SOURCE_PATTERN.fullmatch(source) or source not in VERIFIERS:
+        if not SOURCE_PATTERN.fullmatch(source) or source not in PROVIDERS:
             # repr() keeps control characters from reaching the message or a log; clip a huge one.
             raise ApiError(
-                404, "unknown_source", f"unknown source {source[:40]!r}. Supported: {sorted(VERIFIERS)}"
+                404, "unknown_source", f"unknown source {source[:40]!r}. Supported: {sorted(PROVIDERS)}"
             )
         if (problem := header_problem(request, *header_limit)) is not None:
             raise ApiError(431, "headers_too_large", problem)
@@ -370,7 +370,7 @@ def create_app(
         summary="Prometheus metrics",
     )
     def prometheus_metrics() -> Response:
-        body = metrics.render(store, sources=VERIFIERS, dead_letters=len(dead_letters()))
+        body = metrics.render(store, sources=PROVIDERS, dead_letters=len(dead_letters()))
         return Response(body, media_type=metrics.CONTENT_TYPE)
 
     @app.get(
@@ -636,7 +636,7 @@ def create_app(
             "index.html",
             {
                 "events": events,
-                "sources": sorted(VERIFIERS),
+                "sources": sorted(PROVIDERS),
                 "active": source,
                 "filters": {k: v for k, v in filters.items() if v},
                 "filter_error": filter_error,

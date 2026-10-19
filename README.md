@@ -26,6 +26,7 @@ a replayed request. HookScope makes each of those visible.
     `webhook-signature` (`v1,<base64>` of `id.timestamp.body`, timestamp tolerance, multiple
     signatures for secret rotation)
   - Generic `X-Signature`
+  - `GET /api/providers` lists them with the webhook path, the secret variable, whether it is set, and where each reads the event type and the provider's own delivery id from; that delivery id (`X-GitHub-Delivery`, Stripe's `evt_...`, ...) is added to the `event received` log line so an event can be matched to the provider's dashboard
 - Rejected deliveries return `401` **but are still stored**, so you can see why they failed
 - Web dashboard with per-source tabs, text search, date-range and signature-status filters, pretty-printed JSON and one-click replay, with "Older events" paging through the full history and a shareable page per event (`/events/{id}`) with a **Copy as curl** button that rebuilds the original request (`GET /api/events/{id}/curl`; credential headers are never stored, so they are left out)
 - A browser-only [signature lab](docs/demo/README.md) that signs a sample for every provider and lets you try to break it

@@ -53,6 +53,28 @@ class HealthOut(BaseModel):
     version: str = Field(examples=["0.1.0"])
 
 
+class ProviderOut(BaseModel):
+    """One supported webhook provider and how HookScope treats it."""
+
+    name: str = Field(examples=["github"])
+    path: str = Field(description="Where the provider should send its webhooks.", examples=["/hooks/github"])
+    secret_env: str = Field(
+        description="The environment variable holding its signing secret.",
+        examples=["HOOKSCOPE_SECRET_GITHUB"],
+    )
+    secret_configured: bool = Field(
+        description="Whether that variable is set; if not, events are `no_secret`."
+    )
+    url_signed: bool = Field(
+        description="The signature covers the public URL, so it must match what the provider calls."
+    )
+    timestamp_header: str | None = Field(description="The signature header that carries a timestamp, if any.")
+    event_type_from: str = Field(description="Where the event type is read from.")
+    delivery_id_from: str | None = Field(
+        description="Where the provider's delivery id is read from, if it sends one."
+    )
+
+
 class CheckOut(BaseModel):
     ok: bool
     latency_ms: float = Field(description="How long the check took.")

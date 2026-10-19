@@ -20,7 +20,7 @@ from . import __version__, auth, errors, logs, metrics, request_id
 from .config import Settings
 from .curl import build_curl, redacted_headers
 from .errors import ApiError
-from .providers import PROVIDERS, verify
+from .providers import PROVIDERS, delivery_id, verify
 from .replay import InvalidTargetError, ReplayResult, replay_event
 from .retention import Purger, RetentionPolicy
 from .rules import ForwardRule, deliver, event_type, forward_event, is_dead_letter, load_rules, matching_rules
@@ -30,6 +30,7 @@ from .schemas import (
     EventOut,
     ForwardOut,
     HealthOut,
+    ProviderOut,
     PurgeOut,
     PurgeRequest,
     ReadyOut,
@@ -338,6 +339,7 @@ def create_app(
                 "source": source,
                 "verification": result.status,
                 "reason": result.reason or None,
+                "delivery_id": delivery_id(source, headers, body),
                 "bytes": len(body),
             },
         )
@@ -363,6 +365,27 @@ def create_app(
             status_code=status_code,
             background=background,
         )
+
+    @app.get(
+        "/api/providers",
+        tags=["webhooks"],
+        summary="List supported providers",
+        response_model=list[ProviderOut],
+    )
+    def list_providers() -> list[dict]:
+        return [
+            {
+                "name": provider.name,
+                "path": f"/hooks/{provider.name}",
+                "secret_env": f"HOOKSCOPE_SECRET_{provider.name.upper()}",
+                "secret_configured": provider.name in secrets,
+                "url_signed": provider.url_signed,
+                "timestamp_header": provider.timestamp_header,
+                "event_type_from": provider.event_type_from,
+                "delivery_id_from": provider.delivery_id_from,
+            }
+            for provider in PROVIDERS.values()
+        ]
 
     @app.get(
         "/metrics",

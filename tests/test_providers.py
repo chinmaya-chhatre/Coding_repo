@@ -83,3 +83,43 @@ def test_the_event_type_and_curl_code_no_longer_compare_source_names():
     for name in ("rules.py", "curl.py"):
         text = (Path(providers.__file__).parent / name).read_text()
         assert 'source"] ==' not in text and 'source ==' not in text, name
+
+
+# ------------------------------------------------------------------------ delivery ids
+
+
+@pytest.mark.parametrize(
+    ("source", "headers", "body", "expected"),
+    [
+        ("github", {"X-GitHub-Delivery": "72d3162e-cc78"}, b"{}", "72d3162e-cc78"),
+        ("shopify", {"x-shopify-webhook-id": "b54557e4-bdd9"}, b"{}", "b54557e4-bdd9"),
+        ("svix", {"svix-id": "msg_2LJ"}, b"{}", "msg_2LJ"),
+        ("twilio", {"I-Twilio-Idempotency-Token": "abc-123"}, b"a=1", "abc-123"),
+        ("stripe", {}, b'{"id": "evt_1Qx", "type": "invoice.paid"}', "evt_1Qx"),
+        ("slack", {}, b'{"type": "event_callback", "event_id": "Ev0PV52K21"}', "Ev0PV52K21"),
+        ("github", {}, b"{}", None),  # no header
+        ("stripe", {}, b"not json", None),
+        ("stripe", {}, b'["evt_1"]', None),
+        ("stripe", {}, b'{"id": 7}', None),  # not a string
+        ("stripe", {}, b'{"id": "   "}', None),
+        ("generic", {"X-Anything": "1"}, b'{"id": "x"}', None),  # nothing agreed to look at
+        ("nope", {}, b"{}", None),
+    ],
+)
+def test_delivery_id_is_read_where_the_provider_puts_it(source, headers, body, expected):
+    assert providers.delivery_id(source, headers, body) == expected
+
+
+def test_a_huge_delivery_id_is_clipped():
+    assert len(providers.delivery_id("svix", {"svix-id": "x" * 5000}, b"")) == providers.MAX_DELIVERY_ID
+
+
+def test_descriptions_say_where_things_are_read():
+    assert PROVIDERS["github"].event_type_from == "header x-github-event"
+    assert PROVIDERS["stripe"].event_type_from == "body type"
+    assert PROVIDERS["slack"].event_type_from == (
+        "body type, or the type inside 'event' when the outer type is 'event_callback'"
+    )
+    assert PROVIDERS["github"].delivery_id_from == "header x-github-delivery"
+    assert PROVIDERS["stripe"].delivery_id_from == "body id"
+    assert PROVIDERS["generic"].delivery_id_from is None

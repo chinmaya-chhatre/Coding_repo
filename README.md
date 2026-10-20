@@ -27,7 +27,7 @@ a replayed request. HookScope makes each of those visible.
     signatures for secret rotation)
   - Generic `X-Signature`
   - `GET /api/providers` lists them with the webhook path, the secret variable, whether it is set, and where each reads the event type and the provider's own delivery id from; that delivery id (`X-GitHub-Delivery`, Stripe's `evt_...`, ...) is added to the `event received` log line so an event can be matched to the provider's dashboard
-  - `POST /api/providers/<name>/test` sends a correctly signed sample through the normal pipeline (verified, stored, forwarded by your rules) using the provider's configured secret, so rules and the dashboard can be tried without waiting for the provider; the signature never leaves the server (`409` if the secret is not set)
+  - `POST /api/providers/<name>/test` sends a correctly signed sample through the normal pipeline (verified, stored, forwarded by your rules) using the provider's configured secret, so rules and the dashboard can be tried without waiting for the provider (the dashboard's **Send a test event** panel calls it); the signature never leaves the server (`409` if the secret is not set)
 - Rejected deliveries return `401` **but are still stored**, so you can see why they failed
 - Web dashboard with per-source tabs, text search, date-range and signature-status filters, pretty-printed JSON and one-click replay, with "Older events" paging through the full history and a shareable page per event (`/events/{id}`) with a **Copy as curl** button that rebuilds the original request (`GET /api/events/{id}/curl`; credential headers are never stored, so they are left out)
 - A browser-only [signature lab](docs/demo/README.md) that signs a sample for every provider and lets you try to break it

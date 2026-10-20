@@ -53,6 +53,15 @@
     .forwards th { color:var(--muted); font-weight:500; }
     .forwards td.target { word-break:break-all; }
     .fwd-ok { color:var(--ok); } .fwd-err { color:var(--bad); }
+    .sendtest { margin:12px 0; }
+    .sendtest-form { display:flex; flex-wrap:wrap; gap:8px; align-items:end; padding:10px 14px; border-top:1px solid var(--border); }
+    .sendtest-form label { display:flex; flex-direction:column; font-size:13px; color:var(--muted); gap:2px; }
+    .sendtest-form select, .sendtest-form button { padding:6px 10px; font:inherit; color:var(--text);
+                     background:var(--card); border:1px solid var(--border); border-radius:6px; }
+    .sendtest-form button { cursor:pointer; }
+    .sendtest-form button:disabled { opacity:.6; cursor:default; }
+    .sendtest-note { flex-basis:100%; margin:0; font-size:13px; }
+    .sendtest-note.ok { color:var(--ok); } .sendtest-note.err { color:var(--bad); }
     .dead { background:var(--card); border:1px solid var(--bad); border-radius:8px; margin:12px 0; padding:10px 14px;
             font-size:13px; overflow-x:auto; }
     .dead h2 { margin:0 0 6px; font-size:14px; color:var(--bad); }
@@ -151,6 +160,36 @@
       } finally {
         button.disabled = false;
       }
+    });
+  }
+
+  for (const form of document.querySelectorAll("form.sendtest-form")) {
+    const select = form.elements.provider;
+    const button = form.querySelector("button");
+    const note = form.querySelector(".sendtest-note");
+    // Start on the first provider that can actually be tested.
+    const usable = [...select.options].find((option) => !option.disabled);
+    if (usable) select.value = usable.value;
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      button.disabled = true;
+      note.className = "sendtest-note";
+      note.textContent = "Sending…";
+      try {
+        const resp = await fetch(`/api/providers/${encodeURIComponent(select.value)}/test`, { method: "POST" });
+        const data = await resp.json();
+        if (resp.status === 202 && data.verification === "valid") {
+          location.reload();
+          return;
+        }
+        note.className = "sendtest-note err";
+        note.textContent = data.error ? data.error.message
+          : `Not accepted: ${data.verification}${data.reason ? ` (${data.reason})` : ""}`;
+      } catch (err) {
+        note.className = "sendtest-note err";
+        note.textContent = `Could not send the test: ${err}`;
+      }
+      button.disabled = false;
     });
   }
 

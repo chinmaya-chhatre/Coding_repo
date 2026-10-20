@@ -40,7 +40,8 @@ No backend: signatures are computed in the browser with Web Crypto.
 - [x] P1.13 Input hardening: caps on header count and size, strict `source` path characters
 - [x] P1.14 Provider registry: each provider as one object (verifier, URL signing, timestamp header, event type); replaces the scattered `if source ==` branches in rules and curl
 - [x] P1.14b Provider registry, part 2: the provider's delivery id (logged) and a `GET /api/providers` listing
-- [ ] P1.14c Provider registry, part 3: a signed sample event per provider, served by the API and used by the dashboard's "send a test" form
+- [x] P1.14c Provider registry, part 3: a signed sample event per provider (`hookscope/samples.py`) and `POST /api/providers/{name}/test`
+- [ ] P1.14d "Send a test" button per provider on the dashboard, using that endpoint
 
 ## P2 Signature failure explainer (12)
 - [ ] P2.01 `diagnostics` module: `Diagnosis(cause, message, fix)`, run only for `invalid` / `unsigned` events

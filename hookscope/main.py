@@ -24,6 +24,7 @@ from .providers import PROVIDERS, delivery_id, verify
 from .replay import InvalidTargetError, ReplayResult, replay_event
 from .retention import Purger, RetentionPolicy
 from .rules import ForwardRule, deliver, event_type, forward_event, is_dead_letter, load_rules, matching_rules
+from .samples import SampleError, build_sample
 from .schemas import (
     CurlOut,
     DeadLetterOut,
@@ -61,6 +62,11 @@ PageSize = Annotated[int, Query(ge=1, description="How many to return (at most 5
 BeforeId = Annotated[int | None, Query(ge=0, le=MAX_ID, description="Only events with a smaller id.")]
 SearchText = Annotated[str | None, Query(max_length=200, description="Text to find in bodies and headers.")]
 ShortText = Annotated[str | None, Query(max_length=64)]
+
+
+def unknown_source(source: str) -> ApiError:
+    # repr() keeps control characters from reaching the message or a log; clip a huge one.
+    return ApiError(404, "unknown_source", f"unknown source {source[:40]!r}. Supported: {sorted(PROVIDERS)}")
 
 
 def header_problem(request: Request, max_headers: int, max_bytes: int) -> str | None:
@@ -292,36 +298,16 @@ def create_app(
         }
         return JSONResponse(body, status_code=200 if error is None else 503)
 
-    @app.post(
-        "/hooks/{source}",
-        tags=["webhooks"],
-        summary="Receive a webhook",
-        status_code=202,
-        # Rejected deliveries (bad signature) answer 401 with the same body, and are still stored.
-        responses={
-            202: {"model": ReceiveOut},
-            200: {"model": SlackChallengeOut, "description": "Slack `url_verification` handshake."},
-            401: {"model": ReceiveOut, "description": "Signature check failed; the event is stored anyway."},
-            **error_responses(404, 413),
-        },
-    )
-    async def receive(source: str, request: Request, background: BackgroundTasks) -> JSONResponse:
-        if not SOURCE_PATTERN.fullmatch(source) or source not in PROVIDERS:
-            # repr() keeps control characters from reaching the message or a log; clip a huge one.
-            raise ApiError(
-                404, "unknown_source", f"unknown source {source[:40]!r}. Supported: {sorted(PROVIDERS)}"
-            )
-        if (problem := header_problem(request, *header_limit)) is not None:
-            raise ApiError(431, "headers_too_large", problem)
-
-        try:
-            body = await read_body_limited(request, body_limit)
-        except BodyTooLargeError:
-            raise ApiError(
-                413, "payload_too_large", f"request body exceeds the {body_limit} byte limit"
-            ) from None
-        headers = dict(request.headers)
-        result = verify(source, body, headers, secrets.get(source), url=str(request.url))
+    def ingest(
+        source: str,
+        body: bytes,
+        headers: dict[str, str],
+        url: str,
+        rid: str,
+        background: BackgroundTasks,
+    ) -> JSONResponse:
+        """Verify, store and forward one delivery; shared by the real endpoint and the provider test."""
+        result = verify(source, body, headers, secrets.get(source), url=url)
         event_id = store.add(
             source=source,
             headers=headers,
@@ -329,7 +315,7 @@ def create_app(
             raw_body=body,
             verification=result.status,
             reason=result.reason,
-            request_id=request.state.request_id,
+            request_id=rid,
         )
         log.log(
             logging.WARNING if result.rejected else logging.INFO,
@@ -366,6 +352,35 @@ def create_app(
             background=background,
         )
 
+    @app.post(
+        "/hooks/{source}",
+        tags=["webhooks"],
+        summary="Receive a webhook",
+        status_code=202,
+        # Rejected deliveries (bad signature) answer 401 with the same body, and are still stored.
+        responses={
+            202: {"model": ReceiveOut},
+            200: {"model": SlackChallengeOut, "description": "Slack `url_verification` handshake."},
+            401: {"model": ReceiveOut, "description": "Signature check failed; the event is stored anyway."},
+            **error_responses(404, 413),
+        },
+    )
+    async def receive(source: str, request: Request, background: BackgroundTasks) -> JSONResponse:
+        if not SOURCE_PATTERN.fullmatch(source) or source not in PROVIDERS:
+            raise unknown_source(source)
+        if (problem := header_problem(request, *header_limit)) is not None:
+            raise ApiError(431, "headers_too_large", problem)
+
+        try:
+            body = await read_body_limited(request, body_limit)
+        except BodyTooLargeError:
+            raise ApiError(
+                413, "payload_too_large", f"request body exceeds the {body_limit} byte limit"
+            ) from None
+        return ingest(
+            source, body, dict(request.headers), str(request.url), request.state.request_id, background
+        )
+
     @app.get(
         "/api/providers",
         tags=["webhooks"],
@@ -386,6 +401,36 @@ def create_app(
             }
             for provider in PROVIDERS.values()
         ]
+
+    @app.post(
+        "/api/providers/{name}/test",
+        tags=["webhooks"],
+        summary="Send a signed test event",
+        status_code=202,
+        responses={202: {"model": ReceiveOut}, **error_responses(404, 409)},
+    )
+    def send_test(name: str, request: Request, background: BackgroundTasks) -> JSONResponse:
+        """Deliver a sample signed with the provider's configured secret, through the normal pipeline.
+
+        The event is verified, stored and forwarded like a real one, so rules and the dashboard can be
+        tried without waiting for the provider. The signature never leaves the server.
+        """
+        if name not in PROVIDERS:
+            raise unknown_source(name)
+        secret = secrets.get(name)
+        if not secret:
+            raise ApiError(
+                409,
+                "secret_not_configured",
+                f"set HOOKSCOPE_SECRET_{name.upper()} first: a test event is signed with it",
+            )
+        url = f"{str(request.base_url).rstrip('/')}/hooks/{name}"
+        try:
+            sample = build_sample(name, secret, url=url)
+        except SampleError as exc:
+            raise ApiError(409, "sample_unavailable", str(exc)) from None
+        headers = {key.lower(): value for key, value in sample.headers.items()}
+        return ingest(name, sample.body, headers, url, request.state.request_id, background)
 
     @app.get(
         "/metrics",

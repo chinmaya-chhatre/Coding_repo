@@ -1,11 +1,13 @@
 import json
 import logging
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from hookscope.main import create_app
 from hookscope.providers import PROVIDERS
+from hookscope.rules import ForwardRule
 from hookscope.schemas import ProviderOut
 from hookscope.store import EventStore
 
@@ -62,3 +64,84 @@ def test_the_delivery_id_reaches_the_log(client, caplog):
     received = {r.source: r for r in caplog.records if r.getMessage() == "event received"}
     assert received["github"].delivery_id == "guid-1"
     assert received["stripe"].delivery_id == "evt_9"
+
+
+# ------------------------------------------------------------------------------ send a test
+
+
+SECRETS = {name: "sample-secret" for name in PROVIDERS} | {"svix": "whsec_ZGV2LXNlY3JldC1kZXYtc2VjcmV0"}
+
+
+@pytest.fixture
+def lab(tmp_path):
+    seen: list[httpx.Request] = []
+
+    def target(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, text="ok")
+
+    app = create_app(
+        store=EventStore(str(tmp_path / "lab.db")),
+        secrets=SECRETS,
+        rules=[ForwardRule("everything", "http://sink.test/", source="stripe")],
+        http_client=httpx.Client(transport=httpx.MockTransport(target)),
+        admin_password=None,
+    )
+    client = TestClient(app)
+    client.seen = seen
+    return client
+
+
+@pytest.mark.parametrize("name", sorted(PROVIDERS))
+def test_a_test_event_is_verified_stored_and_valid(lab, name):
+    response = lab.post(f"/api/providers/{name}/test")
+    assert response.status_code == 202, response.text
+    assert response.json()["verification"] == "valid"
+    event = lab.get(f"/api/events/{response.json()['id']}").json()
+    assert event["source"] == name and event["verification"] == "valid"
+
+
+def test_a_test_event_follows_the_forwarding_rules(lab):
+    response = lab.post("/api/providers/stripe/test")
+    assert response.json()["forwarded_to"] == ["everything"]
+    assert len(lab.seen) == 1
+    assert lab.post("/api/providers/github/test").json()["forwarded_to"] == []
+
+
+def test_the_response_does_not_contain_the_signature_or_secret(lab):
+    text = lab.post("/api/providers/github/test").text
+    assert "sha256=" not in text and "sample-secret" not in text
+
+
+def test_the_stored_event_keeps_lower_case_headers_like_a_real_one(lab):
+    event_id = lab.post("/api/providers/github/test").json()["id"]
+    headers = lab.get(f"/api/events/{event_id}").json()["headers"]
+    assert "x-github-event" in headers and "X-GitHub-Event" not in headers
+
+
+def test_a_test_needs_a_configured_secret(client):
+    response = client.post("/api/providers/stripe/test")
+    assert response.status_code == 409
+    error = response.json()["error"]
+    assert error["code"] == "secret_not_configured" and "HOOKSCOPE_SECRET_STRIPE" in error["message"]
+    assert client.get("/api/events").json() == []  # nothing was stored
+
+
+def test_an_unusable_svix_secret_is_explained(tmp_path):
+    app = create_app(
+        store=EventStore(str(tmp_path / "s.db")), secrets={"svix": "dev-secret"}, admin_password=None
+    )
+    response = TestClient(app).post("/api/providers/svix/test")
+    assert response.status_code == 409 and response.json()["error"]["code"] == "sample_unavailable"
+    assert "whsec_" in response.json()["error"]["message"]
+
+
+def test_an_unknown_provider_is_a_404(client):
+    response = client.post("/api/providers/nope/test")
+    assert response.status_code == 404 and response.json()["error"]["code"] == "unknown_source"
+
+
+def test_the_endpoint_is_documented(client):
+    operation = client.get("/openapi.json").json()["paths"]["/api/providers/{name}/test"]["post"]
+    assert operation["summary"] == "Send a signed test event"
+    assert {"202", "404", "409"} <= set(operation["responses"])

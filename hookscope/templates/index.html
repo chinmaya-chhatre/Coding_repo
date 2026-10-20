@@ -12,7 +12,7 @@
         </select>
       </label>
       <button type="submit" {{ 'disabled' if not configured }}>Send</button>
-      <p class="sendtest-note muted" role="status">{% if configured %}A correctly signed sample, sent through the normal pipeline with the provider's secret: stored, verified and forwarded by your rules.{% else %}Set a <code>HOOKSCOPE_SECRET_&lt;SOURCE&gt;</code> variable first: a test event is signed with it.{% endif %}</p>
+      <p class="sendtest-note muted" role="status">{% if configured %}A correctly signed sample, sent through the normal pipeline with the provider's secret: stored, verified, and passed to any matching forwarding rule.{% else %}Set a <code>HOOKSCOPE_SECRET_&lt;SOURCE&gt;</code> variable first: a test event is signed with it.{% endif %}</p>
     </form>
   </details>
   <nav>

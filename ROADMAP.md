@@ -44,7 +44,7 @@ No backend: signatures are computed in the browser with Web Crypto.
 - [x] P1.14d "Send a test" panel on the dashboard (a provider picker; providers without a secret are disabled), using `POST /api/providers/{name}/test`
 
 ## P2 Signature failure explainer (12)
-- [ ] P2.01 `diagnostics` module: `Diagnosis(cause, message, fix)`, run only for `invalid` / `unsigned` events
+- [x] P2.01 `diagnostics` module: `Diagnosis(cause, message, fix)`, run only for `invalid` / `unsigned` events
 - [ ] P2.02 Detector: headers from the wrong provider (GitHub header sent to `/hooks/stripe`)
 - [ ] P2.03 Detector: body was re-encoded (compact vs pretty JSON, key order, trailing newline, CRLF, BOM) by re-verifying variants
 - [ ] P2.04 Detector: secret has stray whitespace, a newline or quotes

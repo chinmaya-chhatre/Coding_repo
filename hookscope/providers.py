@@ -20,6 +20,8 @@ from .signatures import VerificationResult
 class Provider:
     name: str
     verify: Callable[..., VerificationResult]
+    # The header the signature travels in, as the provider documents it (for messages to people).
+    signature_header: str = ""
     # The signature covers the public URL, so ``verify`` also needs it.
     url_signed: bool = False
     # The signature header whose value carries a timestamp, if the provider rejects stale requests.
@@ -60,24 +62,28 @@ PROVIDERS: dict[str, Provider] = {
         Provider(
             "github",
             signatures.verify_github,
+            signature_header="X-Hub-Signature-256",
             event_type_header="x-github-event",
             delivery_id_header="x-github-delivery",
         ),
         Provider(
             "stripe",
             signatures.verify_stripe,
+            signature_header="Stripe-Signature",
             timestamp_header="Stripe-Signature",
             delivery_id_key="id",
         ),
         Provider(
             "shopify",
             signatures.verify_shopify,
+            signature_header="X-Shopify-Hmac-Sha256",
             event_type_header="x-shopify-topic",
             delivery_id_header="x-shopify-webhook-id",
         ),
         Provider(
             "slack",
             signatures.verify_slack,
+            signature_header="X-Slack-Signature",
             timestamp_header="X-Slack-Signature",
             event_envelope=("event_callback", "event"),
             delivery_id_key="event_id",
@@ -85,6 +91,7 @@ PROVIDERS: dict[str, Provider] = {
         Provider(
             "twilio",
             signatures.verify_twilio,
+            signature_header="X-Twilio-Signature",
             url_signed=True,
             delivery_id_header="i-twilio-idempotency-token",
             replay_note=(
@@ -92,9 +99,13 @@ PROVIDERS: dict[str, Provider] = {
             ),
         ),
         Provider(
-            "svix", signatures.verify_svix, timestamp_header="svix-signature", delivery_id_header="svix-id"
+            "svix",
+            signatures.verify_svix,
+            signature_header="svix-signature",
+            timestamp_header="svix-signature",
+            delivery_id_header="svix-id",
         ),
-        Provider("generic", signatures.verify_generic),
+        Provider("generic", signatures.verify_generic, signature_header="X-Signature"),
     )
 }
 

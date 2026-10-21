@@ -45,7 +45,7 @@ No backend: signatures are computed in the browser with Web Crypto.
 
 ## P2 Signature failure explainer (12)
 - [x] P2.01 `diagnostics` module: `Diagnosis(cause, message, fix)`, run only for `invalid` / `unsigned` events
-- [ ] P2.02 Detector: headers from the wrong provider (GitHub header sent to `/hooks/stripe`)
+- [x] P2.02 Detector: headers from the wrong provider (GitHub header sent to `/hooks/stripe`)
 - [ ] P2.03 Detector: body was re-encoded (compact vs pretty JSON, key order, trailing newline, CRLF, BOM) by re-verifying variants
 - [ ] P2.04 Detector: secret has stray whitespace, a newline or quotes
 - [ ] P2.05 Detector: timestamp skew in seconds (clock drift vs replay) for Stripe, Slack, Svix

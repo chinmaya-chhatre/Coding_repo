@@ -137,3 +137,76 @@ def test_a_sample_without_its_signature_is_explained(source):
     arrived = received(source, drop={PROVIDERS[source].signature_header.lower()})
     assert arrived.result.status == "unsigned"
     assert diagnose(arrived).cause == "missing_signature"
+
+
+# ---------------------------------------------------------------- wrong provider
+
+PAIRS = [(sent, to) for sent in sorted(PROVIDERS) for to in sorted(PROVIDERS) if sent != to]
+
+
+def sent_to(source, to, headers=None):
+    """A sample from ``source`` posted to ``/hooks/<to>``, as that endpoint's verifier sees it."""
+    sample = build_sample(source, SECRETS[source], url=URL)
+    headers = sample.headers if headers is None else headers
+    url = f"https://hooks.example.com/hooks/{to}"
+    result = providers.verify(to, sample.body, headers, SECRETS[to], url=url)
+    return Delivery(to, sample.body, headers, SECRETS[to], url, result)
+
+
+@pytest.mark.parametrize(("sent", "to"), PAIRS)
+def test_every_provider_sent_to_every_other_endpoint_is_spotted(sent, to):
+    arrived = sent_to(sent, to)
+    assert arrived.result.status == "unsigned"
+    found = diagnose(arrived)
+    assert found.cause == "wrong_provider"
+    assert f"came from {sent}" in found.message and f"/hooks/{to}" in found.message
+    assert f"https://hooks.example.com/hooks/{sent}" in found.fix
+
+
+def test_the_message_names_the_header_that_gave_it_away():
+    found = diagnose(sent_to("github", "stripe"))
+    assert "X-Hub-Signature-256" in found.message and "Stripe-Signature" in found.message
+
+
+def test_an_event_header_alone_is_enough_evidence():
+    headers = {"Content-Type": "application/json", "X-GitHub-Event": "push"}  # signing switched off
+    found = diagnose(sent_to("github", "shopify", headers))
+    assert found.cause == "wrong_provider" and "X-GitHub-Event" in found.message
+
+
+def test_the_standard_webhooks_header_names_count_for_svix():
+    headers = {"webhook-id": "msg_1", "webhook-timestamp": "1", "webhook-signature": "v1,abc"}
+    found = diagnose(sent_to("svix", "github", headers))
+    assert found.cause == "wrong_provider" and "came from svix" in found.message
+
+
+def test_header_names_are_matched_without_regard_to_case():
+    headers = {"x-hub-signature-256": "sha256=abc"}
+    assert diagnose(sent_to("github", "stripe", headers)).cause == "wrong_provider"
+
+
+def test_a_request_with_no_provider_headers_is_just_unsigned():
+    found = diagnose(sent_to("github", "stripe", {"Content-Type": "application/json"}))
+    assert found.cause == "missing_signature"
+
+
+def test_a_bad_signature_of_the_right_kind_is_not_a_wrong_provider():
+    arrived = received("github", body=b"{}")  # its own header, wrong content
+    assert arrived.result.status == "invalid"
+    assert diagnose(arrived).cause == "unexplained"
+
+
+def test_a_url_without_a_hooks_path_still_gives_a_usable_fix():
+    arrived = sent_to("github", "stripe")
+    odd = Delivery(arrived.source, arrived.body, arrived.headers, "s", "http://x/y", arrived.result)
+    assert "/hooks/github" in diagnose(odd).fix
+
+
+def test_identifying_headers_are_lower_case_and_distinct_per_provider():
+    seen = {}
+    for name, provider in PROVIDERS.items():
+        for header in provider.identifying_headers:
+            assert header == header.lower()
+            assert header not in seen, f"{header} identifies both {seen[header]} and {name}"
+            seen[header] = name
+    assert "webhook-signature" in PROVIDERS["svix"].identifying_headers

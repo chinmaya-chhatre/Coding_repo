@@ -435,7 +435,7 @@ provider ──POST /hooks/{source}──▶ FastAPI ──▶ signatures.verify
 ```
 
 - `hookscope/signatures.py` — one pure function per provider, easy to unit test
-- `hookscope/diagnostics.py` — explains why a signature check failed (`Diagnosis(cause, message, fix)`): a registry of small detectors that runs only for rejected deliveries; more detectors are added one at a time
+- `hookscope/diagnostics.py` — explains why a signature check failed (`Diagnosis(cause, message, fix)`): a registry of small detectors that runs only for rejected deliveries; detectors so far: a request sent to the wrong provider's endpoint (it carries another provider's headers), a missing signature header, and a general mismatch checklist; more are added one at a time
 - `hookscope/samples.py` — a signed example delivery per provider, behind `POST /api/providers/<name>/test` and `scripts/send_test_webhook.py`
 - `hookscope/providers.py` — the provider registry: each provider's verifier, URL-signing, timestamp header and event-type location in one object; adding a provider means adding one entry
 - `hookscope/store.py` — thin SQLite wrapper, indexed by receive time and source

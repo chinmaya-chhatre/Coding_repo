@@ -22,6 +22,8 @@ class Provider:
     verify: Callable[..., VerificationResult]
     # The header the signature travels in, as the provider documents it (for messages to people).
     signature_header: str = ""
+    # Other header names the verifier accepts for the signature (lower case).
+    signature_header_aliases: tuple[str, ...] = ()
     # The signature covers the public URL, so ``verify`` also needs it.
     url_signed: bool = False
     # The signature header whose value carries a timestamp, if the provider rejects stale requests.
@@ -36,6 +38,16 @@ class Provider:
     delivery_id_key: str | None = None
     # Extra advice shown above a rebuilt curl command.
     replay_note: str = ""
+
+    @property
+    def identifying_headers(self) -> tuple[str, ...]:
+        """Lower-case names of the headers that show a request came from this provider.
+
+        Its signature header (and aliases), plus the event type and delivery id headers it sends.
+        """
+        names = [self.signature_header, *self.signature_header_aliases]
+        names += [self.event_type_header, self.delivery_id_header]
+        return tuple(dict.fromkeys(name.lower() for name in names if name))
 
     @property
     def event_type_from(self) -> str:
@@ -102,6 +114,7 @@ PROVIDERS: dict[str, Provider] = {
             "svix",
             signatures.verify_svix,
             signature_header="svix-signature",
+            signature_header_aliases=("webhook-signature",),
             timestamp_header="svix-signature",
             delivery_id_header="svix-id",
         ),

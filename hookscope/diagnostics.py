@@ -80,6 +80,31 @@ def diagnose(delivery: Delivery) -> Diagnosis | None:
 
 
 @detector
+def wrong_provider(delivery: Delivery) -> Diagnosis | None:
+    """The request carries another provider's headers: it was sent to the wrong ``/hooks/<source>``."""
+    if delivery.result.status != "unsigned":
+        return None
+    for name, provider in PROVIDERS.items():
+        if name == delivery.source:
+            continue
+        sent = {h.lower(): h for h in delivery.headers}
+        # Most telling first: the signature header, then the event type and delivery id.
+        present = next((sent[h] for h in provider.identifying_headers if h in sent), None)
+        if present is None:
+            continue
+        base, found, _ = delivery.url.rpartition("/hooks/")
+        corrected = f"{base}/hooks/{name}" if found else f"/hooks/{name}"
+        return Diagnosis(
+            "wrong_provider",
+            f"This request looks like it came from {name} (it has the {present} header) but it was sent to "
+            f"/hooks/{delivery.source}, which expects {PROVIDERS[delivery.source].signature_header}.",
+            f"Point the {name} webhook at {corrected}, or if this is meant for {delivery.source} send it "
+            f"with a {PROVIDERS[delivery.source].signature_header} header.",
+        )
+    return None
+
+
+@detector
 def missing_signature(delivery: Delivery) -> Diagnosis | None:
     if delivery.result.status != "unsigned":
         return None

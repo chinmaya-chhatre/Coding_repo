@@ -13,11 +13,12 @@ explaining a failure must never turn a stored delivery into a server error.
 
 from __future__ import annotations
 
+import json
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import asdict, dataclass
 
-from .providers import PROVIDERS
+from .providers import PROVIDERS, verify
 from .signatures import VerificationResult
 
 log = logging.getLogger("hookscope.diagnostics")
@@ -101,6 +102,75 @@ def wrong_provider(delivery: Delivery) -> Diagnosis | None:
             f"Point the {name} webhook at {corrected}, or if this is meant for {delivery.source} send it "
             f"with a {PROVIDERS[delivery.source].signature_header} header.",
         )
+    return None
+
+
+# Re-verifying variants of a big body is cheap, but there is no reason to do it for megabytes.
+MAX_VARIANT_BYTES = 256 * 1024
+BOM = b"\xef\xbb\xbf"
+
+
+def body_variants(body: bytes) -> Iterator[tuple[str, bytes]]:
+    """Ways the signed body might have looked before something changed it, as (description, bytes).
+
+    Each variant undoes one common change: re-serialised JSON (spacing, key order, escaping), a
+    trailing newline added or removed, CRLF line endings, a byte order mark, stray surrounding space.
+    """
+    if body.endswith(b"\n"):
+        yield "the body without its trailing newline", body.rstrip(b"\r\n")
+    else:
+        yield "the body with a trailing newline added", body + b"\n"
+    if body.startswith(BOM):
+        yield "the body without its byte order mark (BOM)", body[len(BOM) :]
+    else:
+        yield "the body with a byte order mark (BOM) added", BOM + body
+    if b"\r\n" in body:
+        yield "the body with LF line endings instead of CRLF", body.replace(b"\r\n", b"\n")
+    elif b"\n" in body.rstrip(b"\n"):
+        yield "the body with CRLF line endings instead of LF", body.replace(b"\n", b"\r\n")
+    if body != body.strip():
+        yield "the body without surrounding whitespace", body.strip()
+    # Re-serialised JSON: spacing, key order, escaping, a final newline. Last, since it is the vaguest.
+    try:
+        document = json.loads(body.decode("utf-8-sig"))
+    except ValueError:
+        document = None
+    if document is not None:
+        forms = {
+            "compact JSON": dict(separators=(",", ":"), ensure_ascii=False),
+            "compact JSON with non-ASCII escaped": dict(separators=(",", ":")),
+            "JSON with the default spacing": dict(ensure_ascii=False),
+            "JSON with the default spacing and non-ASCII escaped": {},
+            "pretty-printed JSON (2 spaces)": dict(indent=2, ensure_ascii=False),
+            "pretty-printed JSON (4 spaces)": dict(indent=4, ensure_ascii=False),
+            "JSON with sorted keys": dict(separators=(",", ":"), ensure_ascii=False, sort_keys=True),
+        }
+        for label, options in forms.items():
+            text = json.dumps(document, **options).encode()
+            yield f"the body as {label}", text
+            yield f"the body as {label} plus a final newline", text + b"\n"
+
+
+@detector
+def body_changed_in_transit(delivery: Delivery) -> Diagnosis | None:
+    """The signature fits a slightly different body: something re-encoded it on the way here."""
+    if delivery.result.status != "invalid" or not delivery.secret or len(delivery.body) > MAX_VARIANT_BYTES:
+        return None
+    for what, variant in body_variants(delivery.body):
+        if variant == delivery.body:
+            continue
+        again = verify(
+            delivery.source, variant, delivery.headers, delivery.secret, url=delivery.url, now=delivery.now
+        )
+        if again.status == "valid":
+            return Diagnosis(
+                "body_reencoded",
+                f"The signature is valid for {what}, not for the body that arrived, so the request body "
+                f"was changed between {delivery.source} and HookScope.",
+                "Make HookScope receive the exact bytes that were sent: turn off anything in front of it "
+                "that parses and re-serialises the body (a proxy, an API gateway, a framework's JSON "
+                "middleware), or forward the raw body untouched.",
+            )
     return None
 
 

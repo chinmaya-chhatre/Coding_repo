@@ -8,6 +8,7 @@ so supporting a new provider means adding one entry here.
 
 from __future__ import annotations
 
+import inspect
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -150,11 +151,19 @@ def get(source: str) -> Provider | None:
 
 
 def verify(
-    source: str, body: bytes, headers: Mapping[str, str], secret: str | None, url: str = ""
+    source: str,
+    body: bytes,
+    headers: Mapping[str, str],
+    secret: str | None,
+    url: str = "",
+    now: float | None = None,
 ) -> VerificationResult:
+    """Check a delivery. ``now`` pins the clock for providers whose signature carries a timestamp."""
     if not secret:
         return VerificationResult("no_secret", f"no secret configured for '{source}'")
     provider = PROVIDERS[source]
     if provider.url_signed:
         return provider.verify(body, headers, secret, url)
+    if now is not None and "now" in inspect.signature(provider.verify).parameters:
+        return provider.verify(body, headers, secret, now=now)
     return provider.verify(body, headers, secret)

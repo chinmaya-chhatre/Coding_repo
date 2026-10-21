@@ -1,8 +1,11 @@
+import hashlib
+import hmac
+import json
 import logging
 
 import pytest
 
-from hookscope import providers
+from hookscope import diagnostics, providers
 from hookscope.diagnostics import DETECTORS, Delivery, Diagnosis, detector, diagnose
 from hookscope.providers import PROVIDERS
 from hookscope.samples import build_sample
@@ -127,7 +130,8 @@ def received(source, body=None, drop=()):
 
 @pytest.mark.parametrize("source", sorted(PROVIDERS))
 def test_a_tampered_sample_is_explained(source):
-    arrived = received(source, body=build_sample(source, SECRETS[source], url=URL).body + b" ")
+    original = build_sample(source, SECRETS[source], url=URL).body
+    arrived = received(source, body=original[::-1])  # different content, not just different encoding
     assert arrived.result.status == "invalid"
     assert diagnose(arrived).cause == "unexplained"
 
@@ -210,3 +214,104 @@ def test_identifying_headers_are_lower_case_and_distinct_per_provider():
             assert header not in seen, f"{header} identifies both {seen[header]} and {name}"
             seen[header] = name
     assert "webhook-signature" in PROVIDERS["svix"].identifying_headers
+
+
+# ---------------------------------------------------------------- body changed in transit
+
+BODY_JSON = {"id": 7, "name": "Zoë", "items": [1, 2], "a": {"z": 1, "b": 2}}
+RAW = '{"id":7,"name":"Zoë","items":[1,2],"a":{"z":1,"b":2}}'.encode()  # as the provider sent it
+
+
+def generic_arrival(received_body: bytes, signed_body: bytes = RAW):
+    """A generic delivery signed over ``signed_body`` but received as ``received_body``."""
+    secret = SECRETS["generic"]
+    headers = {"X-Signature": hmac.new(secret.encode(), signed_body, hashlib.sha256).hexdigest()}
+    result = providers.verify("generic", received_body, headers, secret)
+    return Delivery("generic", received_body, headers, secret, "https://h.example/hooks/generic", result)
+
+
+@pytest.mark.parametrize(
+    ("label", "received_body"),
+    [
+        ("the body as compact JSON", json.dumps(BODY_JSON, indent=2, ensure_ascii=False).encode()),
+        ("the body as compact JSON", json.dumps(BODY_JSON, indent=4, ensure_ascii=False).encode()),
+        ("the body as compact JSON", json.dumps(BODY_JSON, ensure_ascii=False).encode()),
+        ("the body as compact JSON", json.dumps(BODY_JSON, separators=(",", ":")).encode()),
+        ("the body without its trailing newline", RAW + b"\n"),
+        ("the body without its byte order mark (BOM)", b"\xef\xbb\xbf" + RAW),
+        ("the body without surrounding whitespace", b"  " + RAW),
+    ],
+)
+def test_a_re_encoded_body_is_recognised_and_the_change_named(label, received_body):
+    arrived = generic_arrival(received_body)
+    assert arrived.result.status == "invalid"
+    found = diagnose(arrived)
+    assert found.cause == "body_reencoded"
+    assert label in found.message and "generic" in found.message
+    assert "exact bytes" in found.fix
+
+
+def test_sorted_keys_are_recognised():
+    original = json.dumps(BODY_JSON, separators=(",", ":"), ensure_ascii=False, sort_keys=True).encode()
+    reordered = json.dumps(BODY_JSON, separators=(",", ":"), ensure_ascii=False).encode()
+    assert original != reordered
+    found = diagnose(generic_arrival(reordered, signed_body=original))
+    assert found.cause == "body_reencoded" and "JSON with sorted keys" in found.message
+
+
+def test_line_endings_are_recognised_in_both_directions():
+    multi = b'{\n  "a": 1,\n  "b": 2\n}'
+    crlf = multi.replace(b"\n", b"\r\n")
+    assert "LF line endings instead of CRLF" in diagnose(generic_arrival(crlf, multi)).message
+    assert "CRLF line endings instead of LF" in diagnose(generic_arrival(multi, crlf)).message
+
+
+def test_a_changed_value_is_not_blamed_on_encoding():
+    changed = RAW.replace(b"7", b"8")
+    assert diagnose(generic_arrival(changed)).cause == "unexplained"
+
+
+def test_a_body_that_is_not_json_still_gets_the_byte_level_checks():
+    signed = b"plain text payload"
+    assert diagnose(generic_arrival(signed + b"\n", signed)).cause == "body_reencoded"
+    assert diagnose(generic_arrival(b"something else", signed)).cause == "unexplained"
+
+
+def test_a_form_body_from_twilio_with_an_added_newline():
+    sample = build_sample("twilio", SECRETS["twilio"], url=URL)
+    arrived = received("twilio", body=sample.body + b"\n")
+    assert arrived.result.status == "invalid"
+    assert diagnose(arrived).cause == "body_reencoded"
+
+
+@pytest.mark.parametrize("source", ["github", "stripe", "shopify", "slack", "svix", "generic"])
+def test_every_json_provider_is_covered(source):
+    original = build_sample(source, SECRETS[source], url=URL).body
+    pretty = json.dumps(json.loads(original), indent=2).encode()
+    found = diagnose(received(source, body=pretty))
+    assert found.cause == "body_reencoded"
+
+
+def test_a_stale_stripe_timestamp_does_not_hide_a_re_encoded_body():
+    sample = build_sample("stripe", SECRETS["stripe"], url=URL, now=1_000)
+    body = json.dumps(json.loads(sample.body), indent=2).encode()
+    result = providers.verify("stripe", body, sample.headers, SECRETS["stripe"], now=1_000)
+    assert result.status == "invalid" and "signature mismatch" in result.reason
+    arrived = Delivery("stripe", body, sample.headers, SECRETS["stripe"], URL, result, now=1_000)
+    assert diagnose(arrived).cause == "body_reencoded"
+
+
+def test_huge_bodies_are_not_re_verified():
+    big = b'{"x": "' + b"a" * (diagnostics.MAX_VARIANT_BYTES + 1) + b'"}'
+    assert diagnose(generic_arrival(big, b"anything")).cause == "unexplained"
+
+
+def test_an_already_compact_body_offers_itself_as_a_variant_and_the_detector_skips_it():
+    same = [what for what, variant in diagnostics.body_variants(RAW) if variant == RAW]
+    assert same  # re-serialising compact JSON gives the same bytes: it must not count as a finding
+    assert diagnose(generic_arrival(RAW.replace(b"7", b"8"))).cause == "unexplained"
+
+
+def test_the_detector_sits_before_the_general_fallback():
+    names = [d.__name__ for d in DETECTORS]
+    assert names.index("body_changed_in_transit") < names.index("unexplained_mismatch")

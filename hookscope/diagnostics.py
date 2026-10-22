@@ -105,6 +105,50 @@ def wrong_provider(delivery: Delivery) -> Diagnosis | None:
     return None
 
 
+def secret_variants(secret: str) -> Iterator[tuple[str, str, str]]:
+    """Cleaned-up versions of a secret, as (cause, what was wrong, secret).
+
+    Secrets pasted into an env file or a dashboard often pick up a trailing newline, a space, or a pair
+    of quotes that a shell or a runtime kept literally.
+    """
+    seen = {secret}
+
+    def offer(cause: str, what: str, candidate: str) -> Iterator[tuple[str, str, str]]:
+        if candidate and candidate not in seen:
+            seen.add(candidate)
+            yield cause, what, candidate
+
+    yield from offer("secret_whitespace", "a trailing newline", secret.rstrip("\r\n"))
+    yield from offer("secret_whitespace", "leading or trailing whitespace", secret.strip())
+    for mark, name in (('"', "double"), ("'", "single")):
+        for base in (secret, secret.strip()):
+            if len(base) >= 2 and base[0] == base[-1] == mark:
+                what = f"surrounding {name} quotes" + (" and whitespace" if base is not secret else "")
+                yield from offer("secret_quotes", what, base[1:-1])
+                yield from offer("secret_quotes", what, base[1:-1].strip())
+
+
+@detector
+def secret_has_stray_characters(delivery: Delivery) -> Diagnosis | None:
+    """The signature fits the secret once whitespace or quotes are taken off the configured value."""
+    if delivery.result.status != "invalid" or not delivery.secret:
+        return None
+    variable = f"HOOKSCOPE_SECRET_{delivery.source.upper()}"
+    for cause, what, candidate in secret_variants(delivery.secret):
+        again = verify(
+            delivery.source, delivery.body, delivery.headers, candidate, url=delivery.url, now=delivery.now
+        )
+        if again.status == "valid":
+            return Diagnosis(
+                cause,
+                f"The signature is valid if {variable} has {what} removed, so the secret HookScope "
+                "is using is not exactly the one the provider signs with.",
+                f"Set {variable} to the bare secret: no spaces, no newline and no quotes around it. In "
+                "an env file or a compose file, check whether your runtime keeps quotes literally.",
+            )
+    return None
+
+
 # Re-verifying variants of a big body is cheap, but there is no reason to do it for megabytes.
 MAX_VARIANT_BYTES = 256 * 1024
 BOM = b"\xef\xbb\xbf"

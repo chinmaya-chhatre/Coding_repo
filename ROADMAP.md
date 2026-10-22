@@ -47,7 +47,7 @@ No backend: signatures are computed in the browser with Web Crypto.
 - [x] P2.01 `diagnostics` module: `Diagnosis(cause, message, fix)`, run only for `invalid` / `unsigned` events
 - [x] P2.02 Detector: headers from the wrong provider (GitHub header sent to `/hooks/stripe`)
 - [x] P2.03 Detector: body was re-encoded (compact vs pretty JSON, key order, trailing newline, CRLF, BOM) by re-verifying variants
-- [ ] P2.04 Detector: secret has stray whitespace, a newline or quotes
+- [x] P2.04 Detector: secret has stray whitespace, a newline or quotes
 - [ ] P2.05 Detector: timestamp skew in seconds (clock drift vs replay) for Stripe, Slack, Svix
 - [ ] P2.06 Detector: Twilio URL mismatch (http/https, trailing slash, port, query order); say which URL was signed
 - [ ] P2.07 Detector: `whsec_` prefix / base64 secret misuse (Stripe, Svix)

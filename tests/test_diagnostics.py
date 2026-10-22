@@ -315,3 +315,67 @@ def test_an_already_compact_body_offers_itself_as_a_variant_and_the_detector_ski
 def test_the_detector_sits_before_the_general_fallback():
     names = [d.__name__ for d in DETECTORS]
     assert names.index("body_changed_in_transit") < names.index("unexplained_mismatch")
+
+
+# ---------------------------------------------------------------- stray characters in the secret
+
+DIRTY = {
+    "a trailing newline": (lambda s: s + "\n", "secret_whitespace"),
+    "a trailing newline, CRLF": (lambda s: s + "\r\n", "secret_whitespace"),
+    "leading or trailing whitespace": (lambda s: "  " + s + " ", "secret_whitespace"),
+    "surrounding double quotes": (lambda s: f'"{s}"', "secret_quotes"),
+    "surrounding single quotes": (lambda s: f"'{s}'", "secret_quotes"),
+    "surrounding double quotes and whitespace": (lambda s: f' "{s}"\n', "secret_quotes"),
+}
+
+
+def with_configured_secret(source, configured):
+    """A good delivery, checked by a HookScope whose configured secret is ``configured``."""
+    sample = build_sample(source, SECRETS[source], url=URL)
+    result = providers.verify(source, sample.body, sample.headers, configured, url=URL)
+    return Delivery(source, sample.body, sample.headers, configured, URL, result)
+
+
+@pytest.mark.parametrize("source", sorted(PROVIDERS))
+@pytest.mark.parametrize("what", sorted(DIRTY))
+def test_a_secret_with_stray_characters_is_recognised(source, what):
+    dirty, cause = DIRTY[what]
+    arrived = with_configured_secret(source, dirty(SECRETS[source]))
+    assert arrived.result.status == "invalid"
+    found = diagnose(arrived)
+    assert found.cause == cause
+    assert what.removesuffix(", CRLF") in found.message
+    assert f"HOOKSCOPE_SECRET_{source.upper()}" in found.message and "bare secret" in found.fix
+
+
+def test_the_diagnosis_never_contains_the_secret():
+    secret = "very-private-value-123"
+    sample = build_sample("github", secret, url=URL)
+    result = providers.verify("github", sample.body, sample.headers, secret + "\n", url=URL)
+    found = diagnose(Delivery("github", sample.body, sample.headers, secret + "\n", URL, result))
+    assert found.cause == "secret_whitespace"
+    assert "very-private" not in repr(found)
+
+
+def test_a_genuinely_wrong_secret_is_not_blamed_on_whitespace():
+    arrived = with_configured_secret("github", "an-entirely-different-secret\n")
+    assert diagnose(arrived).cause == "unexplained"
+
+
+def test_a_secret_that_is_only_quotes_or_blank_is_left_alone():
+    for odd in ('""', "''", "   "):
+        assert diagnose(with_configured_secret("github", odd)).cause == "unexplained"
+
+
+def test_variants_of_a_clean_secret_are_empty():
+    assert list(diagnostics.secret_variants("clean-secret")) == []
+
+
+def test_a_secret_is_never_offered_twice():
+    candidates = [c for _, _, c in diagnostics.secret_variants('  "abc"  ')]
+    assert len(candidates) == len(set(candidates)) and "abc" in candidates
+
+
+def test_the_secret_check_runs_before_the_body_check():
+    names = [d.__name__ for d in DETECTORS]
+    assert names.index("secret_has_stray_characters") < names.index("body_changed_in_transit")

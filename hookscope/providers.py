@@ -17,12 +17,38 @@ from . import signatures
 from .signatures import VerificationResult
 
 
+def _header(headers: Mapping[str, str], name: str) -> str | None:
+    return next((v for k, v in headers.items() if k.lower() == name), None)
+
+
+def _digits(value: str | None) -> int | None:
+    return int(value) if value and value.isdigit() else None
+
+
+def _stripe_timestamp(headers: Mapping[str, str]) -> int | None:
+    parts = (_header(headers, "stripe-signature") or "").split(",")
+    return next((_digits(v) for k, _, v in (p.strip().partition("=") for p in parts) if k == "t"), None)
+
+
+def _slack_timestamp(headers: Mapping[str, str]) -> int | None:
+    return _digits(_header(headers, "x-slack-request-timestamp"))
+
+
+def _svix_timestamp(headers: Mapping[str, str]) -> int | None:
+    prefix = "svix" if _header(headers, "svix-signature") else "webhook"
+    return _digits(_header(headers, f"{prefix}-timestamp"))
+
+
 @dataclass(frozen=True)
 class Provider:
     name: str
     verify: Callable[..., VerificationResult]
     # The header the signature travels in, as the provider documents it (for messages to people).
     signature_header: str = ""
+    # Reads the signed timestamp from a request's headers (None if absent or malformed), and the
+    # number of seconds either side of now that the verifier accepts it.
+    timestamp_from: Callable[[Mapping[str, str]], int | None] | None = None
+    timestamp_tolerance: int = 0
     # Other header names the verifier accepts for the signature (lower case).
     signature_header_aliases: tuple[str, ...] = ()
     # The signature covers the public URL, so ``verify`` also needs it.
@@ -84,6 +110,8 @@ PROVIDERS: dict[str, Provider] = {
             signatures.verify_stripe,
             signature_header="Stripe-Signature",
             timestamp_header="Stripe-Signature",
+            timestamp_from=_stripe_timestamp,
+            timestamp_tolerance=signatures.STRIPE_TOLERANCE_SECONDS,
             delivery_id_key="id",
         ),
         Provider(
@@ -98,6 +126,8 @@ PROVIDERS: dict[str, Provider] = {
             signatures.verify_slack,
             signature_header="X-Slack-Signature",
             timestamp_header="X-Slack-Signature",
+            timestamp_from=_slack_timestamp,
+            timestamp_tolerance=signatures.SLACK_TOLERANCE_SECONDS,
             event_envelope=("event_callback", "event"),
             delivery_id_key="event_id",
         ),
@@ -117,6 +147,8 @@ PROVIDERS: dict[str, Provider] = {
             signature_header="svix-signature",
             signature_header_aliases=("webhook-signature",),
             timestamp_header="svix-signature",
+            timestamp_from=_svix_timestamp,
+            timestamp_tolerance=signatures.SVIX_TOLERANCE_SECONDS,
             delivery_id_header="svix-id",
         ),
         Provider("generic", signatures.verify_generic, signature_header="X-Signature"),

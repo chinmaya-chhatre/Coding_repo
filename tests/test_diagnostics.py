@@ -379,3 +379,93 @@ def test_a_secret_is_never_offered_twice():
 def test_the_secret_check_runs_before_the_body_check():
     names = [d.__name__ for d in DETECTORS]
     assert names.index("secret_has_stray_characters") < names.index("body_changed_in_transit")
+
+
+# ---------------------------------------------------------------- timestamp skew
+
+TIMESTAMPED = ["stripe", "slack", "svix"]
+NOW = 1_800_000_000
+
+
+def sent_at(source, when, now=NOW, secret=None):
+    """A sample signed at ``when`` and checked by a HookScope whose clock says ``now``."""
+    sample = build_sample(source, SECRETS[source], url=URL, now=when)
+    configured = secret or SECRETS[source]
+    result = providers.verify(source, sample.body, sample.headers, configured, url=URL, now=now)
+    return Delivery(source, sample.body, sample.headers, configured, URL, result, now=now)
+
+
+@pytest.mark.parametrize("source", TIMESTAMPED)
+def test_an_old_request_is_reported_with_its_age_in_seconds(source):
+    arrived = sent_at(source, NOW - 7_425)
+    assert arrived.result.reason.startswith("timestamp outside tolerance")
+    found = diagnose(arrived)
+    assert found.cause == "stale_timestamp"
+    assert "7425 seconds (2 h 3 min 45 s) old" in found.message
+    assert "within 300 seconds (5 min)" in found.message and source in found.message
+    assert "second problem" not in found.message  # the signature itself checks out
+    assert "replay" in found.fix and "date -u" in found.fix
+
+
+@pytest.mark.parametrize("source", TIMESTAMPED)
+def test_a_request_from_the_future_points_at_the_clock(source):
+    found = diagnose(sent_at(source, NOW + 1_000))
+    assert found.cause == "clock_ahead"
+    assert "1000 seconds (16 min 40 s) in the future" in found.message
+    assert "NTP" in found.fix and "behind" in found.fix
+
+
+@pytest.mark.parametrize("source", TIMESTAMPED)
+def test_the_edges_of_the_window(source):
+    tolerance = PROVIDERS[source].timestamp_tolerance
+    inside = sent_at(source, NOW - tolerance)
+    assert inside.result.status == "valid" and diagnose(inside) is None
+    outside = sent_at(source, NOW - tolerance - 1)
+    assert diagnose(outside).message.count(f"{tolerance + 1} seconds") == 1
+
+
+@pytest.mark.parametrize("source", TIMESTAMPED)
+def test_a_wrong_secret_as_well_as_a_stale_clock_says_so(source):
+    wrong = "whsec_d3Jvbmctc2VjcmV0LXdyb25n" if source == "svix" else "wrong-secret"
+    found = diagnose(sent_at(source, NOW - 4_000, secret=wrong))
+    assert found.cause == "stale_timestamp"
+    assert "second problem" in found.message and "fix the clock first" in found.message
+
+
+def test_providers_without_a_signed_timestamp_never_get_this_diagnosis():
+    for source in ("github", "shopify", "twilio", "generic"):
+        assert PROVIDERS[source].timestamp_from is None
+        forged = delivery(source=source, reason="timestamp outside tolerance (possible replay)")
+        assert diagnose(forged).cause == "unexplained"
+
+
+def test_a_malformed_timestamp_is_not_a_skew():
+    headers = {"Stripe-Signature": "t=abc,v1=00"}
+    stale = "timestamp outside tolerance (possible replay)"
+    arrived = delivery(source="stripe", headers=headers, reason=stale)
+    assert diagnose(arrived).cause == "unexplained"
+
+
+@pytest.mark.parametrize(
+    ("seconds", "text"),
+    [(0, "0 s"), (59, "59 s"), (60, "1 min"), (300, "5 min"), (3_661, "1 h 1 min 1 s"), (90_000, "1 d 1 h")],
+)
+def test_durations_read_naturally(seconds, text):
+    assert diagnostics.duration(seconds) == text
+    assert diagnostics.duration(-seconds) == text
+
+
+def test_timestamps_are_read_from_each_providers_own_headers():
+    stripe = PROVIDERS["stripe"].timestamp_from
+    assert stripe({"stripe-signature": "t=123,v1=aa,v0=bb"}) == 123
+    assert stripe({"Stripe-Signature": "v1=aa"}) is None
+    assert PROVIDERS["slack"].timestamp_from({"X-Slack-Request-Timestamp": "456"}) == 456
+    svix = PROVIDERS["svix"].timestamp_from
+    assert svix({"svix-signature": "x", "svix-timestamp": "7"}) == 7
+    assert svix({"webhook-signature": "x", "webhook-timestamp": "8"}) == 8
+
+
+def test_the_skew_check_runs_before_the_secret_and_body_checks():
+    names = [d.__name__ for d in DETECTORS]
+    assert names.index("timestamp_skew") < names.index("secret_has_stray_characters")
+    assert names.index("timestamp_skew") < names.index("body_changed_in_transit")

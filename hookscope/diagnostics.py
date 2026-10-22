@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import asdict, dataclass
 
@@ -103,6 +104,62 @@ def wrong_provider(delivery: Delivery) -> Diagnosis | None:
             f"with a {PROVIDERS[delivery.source].signature_header} header.",
         )
     return None
+
+
+def duration(seconds: int) -> str:
+    """``7425`` to ``"2 h 3 min 45 s"``; whole units only, largest first."""
+    days, rest = divmod(abs(seconds), 86_400)
+    hours, rest = divmod(rest, 3_600)
+    minutes, secs = divmod(rest, 60)
+    parts = [f"{n} {unit}" for n, unit in ((days, "d"), (hours, "h"), (minutes, "min"), (secs, "s")) if n]
+    return " ".join(parts) or "0 s"
+
+
+@detector
+def timestamp_skew(delivery: Delivery) -> Diagnosis | None:
+    """The timestamp is outside the window: say by how much, and whether it is old or in the future."""
+    provider = PROVIDERS[delivery.source]
+    if (
+        delivery.result.status != "invalid"
+        or not delivery.result.reason.startswith("timestamp outside tolerance")
+        or provider.timestamp_from is None
+    ):
+        return None
+    sent = provider.timestamp_from(delivery.headers)
+    if sent is None:
+        return None
+    now = time.time() if delivery.now is None else delivery.now
+    skew = int(now - sent)  # positive: the request is older than now
+    window = f"{provider.timestamp_tolerance} seconds ({duration(provider.timestamp_tolerance)})"
+    # Check the signature as of the moment it was sent, so the diagnosis can say whether only the
+    # clock is at fault.
+    at_send_time = (
+        verify(delivery.source, delivery.body, delivery.headers, delivery.secret, delivery.url, now=sent)
+        if delivery.secret
+        else None
+    )
+    also = (
+        ""
+        if at_send_time is not None and at_send_time.status == "valid"
+        else " The signature does not match even as of the moment it was sent, so there is a second "
+        "problem (secret or body): fix the clock first, then check again."
+    )
+    if skew < 0:
+        return Diagnosis(
+            "clock_ahead",
+            f"The timestamp is {-skew} seconds ({duration(skew)}) in the future; {delivery.source} only "
+            f"accepts requests within {window} of now.{also}",
+            "Check the clock on the machine running HookScope (`date -u`) and keep it synced with NTP: "
+            f"it is behind {delivery.source}'s clock by about that much.",
+        )
+    return Diagnosis(
+        "stale_timestamp",
+        f"The timestamp is {skew} seconds ({duration(skew)}) old; {delivery.source} only accepts requests "
+        f"within {window} of now.{also}",
+        "If the clock on the machine running HookScope (`date -u`) is right, this is a replay or a very "
+        f"late delivery: let {delivery.source} send a fresh one. If the clock is fast by about that much, "
+        "fix it and keep it synced with NTP.",
+    )
 
 
 def secret_variants(secret: str) -> Iterator[tuple[str, str, str]]:

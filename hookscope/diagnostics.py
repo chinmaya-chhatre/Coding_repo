@@ -18,6 +18,8 @@ import logging
 import time
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import asdict, dataclass
+from itertools import product
+from urllib.parse import urlsplit, urlunsplit
 
 from .providers import PROVIDERS, verify
 from .signatures import VerificationResult
@@ -160,6 +162,115 @@ def timestamp_skew(delivery: Delivery) -> Diagnosis | None:
         f"late delivery: let {delivery.source} send a fresh one. If the clock is fast by about that much, "
         "fix it and keep it synced with NTP.",
     )
+
+
+DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _forwarded_url(seen: str, headers: Mapping[str, str]) -> str | None:
+    """The URL a proxy in front of HookScope says the caller used, rebuilt from its headers."""
+    lookup = {k.lower(): v for k, v in headers.items()}
+
+    def first(name: str) -> str:
+        return (lookup.get(name) or "").split(",")[0].strip()
+
+    parts = urlsplit(seen)
+    scheme = first("x-forwarded-proto") or parts.scheme
+    host = first("x-forwarded-host") or first("host") or parts.netloc
+    port = first("x-forwarded-port")
+    if port.isdigit() and ":" not in host and int(port) != DEFAULT_PORTS.get(scheme):
+        host = f"{host}:{port}"
+    return urlunsplit((scheme, host, parts.path, parts.query, ""))
+
+
+def _toggle_port(scheme: str, netloc: str) -> str | None:
+    """Add the scheme's default port to a host, or take it off; None when neither applies."""
+    default = DEFAULT_PORTS.get(scheme)
+    if netloc.startswith("[") or default is None:
+        return None
+    host, sep, number = netloc.rpartition(":")
+    if sep and number == str(default):
+        return host
+    return None if sep else f"{netloc}:{default}"
+
+
+def _reorder(query: str, how: str) -> str | None:
+    """The query parameters sorted or reversed; None when there is nothing to reorder."""
+    tokens = query.split("&")
+    if len(tokens) < 2:
+        return None
+    return "&".join(sorted(tokens) if how == "sorted" else reversed(tokens))
+
+
+def url_variants(seen: str, headers: Mapping[str, str]) -> Iterator[tuple[str, str]]:
+    """URLs the provider might have signed, as (url, what differs from ``seen``), fewest changes first.
+
+    Starts from the URL HookScope saw and from the one a proxy's forwarding headers describe, then
+    tries the scheme swapped, a trailing slash added or removed, the default port shown or hidden, and
+    the query parameters in another order.
+    """
+    bases = [seen]
+    forwarded = _forwarded_url(seen, headers)
+    if forwarded and forwarded != seen:
+        bases.append(forwarded)
+    found: dict[str, list[str]] = {}
+    orders = ("as sent", "sorted", "reversed")
+    for base, swap, slash, port, order in product(bases, (0, 1), (0, 1), (0, 1), orders):
+        parts = urlsplit(base)
+        scheme, netloc, path, query = parts.scheme, parts.netloc, parts.path, parts.query
+        if swap:
+            scheme = "https" if scheme == "http" else "http"
+        if slash:
+            path = path[:-1] if path.endswith("/") and len(path) > 1 else path + "/"
+        if port:
+            netloc = _toggle_port(scheme, netloc)
+        if order != "as sent":
+            query = _reorder(query, order)
+        if netloc is None or query is None:
+            continue
+        candidate = urlunsplit((scheme, netloc, path, query, ""))
+        if candidate != seen and candidate not in found:
+            found[candidate] = describe_url_change(seen, candidate)
+    for candidate, changes in sorted(found.items(), key=lambda item: len(item[1])):
+        yield candidate, "; ".join(changes)
+
+
+def describe_url_change(seen: str, signed: str) -> list[str]:
+    """What differs between two URLs, in words (scheme, host, port, path, query order)."""
+    a, b = urlsplit(seen), urlsplit(signed)
+    changes = []
+    if a.scheme != b.scheme:
+        changes.append(f"the scheme is {b.scheme}, not {a.scheme}")
+    if a.hostname != b.hostname:
+        changes.append(f"the host is {b.hostname}, not {a.hostname}")
+    if (a.port, b.port) != (None, None) and a.port != b.port:
+        changes.append(f"the port is {b.port or 'the default'}, not {a.port or 'the default'}")
+    if a.path != b.path:
+        slashed = b.path == a.path + "/"
+        changes.append("the path has a trailing slash" if slashed else "the path has no trailing slash")
+    if a.query != b.query:
+        changes.append("the query parameters are in a different order")
+    return changes
+
+
+@detector
+def url_mismatch(delivery: Delivery) -> Diagnosis | None:
+    """A provider that signs the URL (Twilio): the signature fits a slightly different URL than seen."""
+    provider = PROVIDERS[delivery.source]
+    if delivery.result.status != "invalid" or not provider.url_signed or not delivery.secret:
+        return None
+    for candidate, what in url_variants(delivery.url, delivery.headers):
+        again = verify(delivery.source, delivery.body, delivery.headers, delivery.secret, candidate)
+        if again.status == "valid":
+            return Diagnosis(
+                "url_mismatch",
+                f"{delivery.source} signed {candidate}, but HookScope saw {delivery.url} ({what}). The "
+                f"signature covers the exact URL {delivery.source} calls, so any difference breaks it.",
+                f"Make the URL HookScope sees identical to {candidate}: configure the same URL in "
+                f"{delivery.source}, and if a proxy is in front of HookScope have it pass the original "
+                "Host header and X-Forwarded-Proto (the Docker image already trusts X-Forwarded-Proto).",
+            )
+    return None
 
 
 def secret_variants(secret: str) -> Iterator[tuple[str, str, str]]:

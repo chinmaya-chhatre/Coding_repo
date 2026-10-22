@@ -469,3 +469,118 @@ def test_the_skew_check_runs_before_the_secret_and_body_checks():
     names = [d.__name__ for d in DETECTORS]
     assert names.index("timestamp_skew") < names.index("secret_has_stray_characters")
     assert names.index("timestamp_skew") < names.index("body_changed_in_transit")
+
+
+# ---------------------------------------------------------------- Twilio URL mismatch
+
+PUBLIC = "https://hooks.example.com/hooks/twilio"
+
+
+def twilio_seen(seen_url, public=PUBLIC, headers=None):
+    """A Twilio request signed for ``public`` that HookScope received as ``seen_url``."""
+    sample = build_sample("twilio", SECRETS["twilio"], url=public)
+    sent_headers = {**sample.headers, **(headers or {})}
+    result = providers.verify("twilio", sample.body, sent_headers, SECRETS["twilio"], url=seen_url)
+    return Delivery("twilio", sample.body, sent_headers, SECRETS["twilio"], seen_url, result)
+
+
+def test_the_right_url_is_valid_and_needs_no_diagnosis():
+    arrived = twilio_seen(PUBLIC)
+    assert arrived.result.status == "valid" and diagnose(arrived) is None
+
+
+@pytest.mark.parametrize(
+    ("seen", "public", "says"),
+    [
+        ("http://hooks.example.com/hooks/twilio", PUBLIC, "the scheme is https, not http"),
+        (PUBLIC + "/", PUBLIC, "the path has no trailing slash"),
+        (PUBLIC, PUBLIC + "/", "the path has a trailing slash"),
+        ("https://hooks.example.com:443/hooks/twilio", PUBLIC, "the port is the default, not 443"),
+        (PUBLIC, "https://hooks.example.com:443/hooks/twilio", "the port is 443, not the default"),
+        (
+            "https://hooks.example.com/hooks/twilio?b=2&a=1",
+            "https://hooks.example.com/hooks/twilio?a=1&b=2",
+            "the query parameters are in a different order",
+        ),
+        (
+            "https://hooks.example.com/hooks/twilio?a=1&b=2",
+            "https://hooks.example.com/hooks/twilio?b=2&a=1",
+            "the query parameters are in a different order",
+        ),
+    ],
+)
+def test_each_kind_of_url_difference_is_found_and_named(seen, public, says):
+    arrived = twilio_seen(seen, public)
+    assert arrived.result.status == "invalid"
+    found = diagnose(arrived)
+    assert found.cause == "url_mismatch"
+    assert says in found.message
+    assert f"signed {public}" in found.message and f"saw {seen}" in found.message
+    assert public in found.fix
+
+
+def test_two_differences_at_once_are_found():
+    found = diagnose(twilio_seen("http://hooks.example.com/hooks/twilio/"))
+    assert found.cause == "url_mismatch"
+    assert "scheme" in found.message and "trailing slash" in found.message
+
+
+def test_the_proxys_forwarding_headers_reveal_the_public_host():
+    seen = "http://hookscope:8000/hooks/twilio"
+    headers = {"X-Forwarded-Proto": "https", "X-Forwarded-Host": "hooks.example.com"}
+    found = diagnose(twilio_seen(seen, headers=headers))
+    assert found.cause == "url_mismatch"
+    assert "the host is hooks.example.com, not hookscope" in found.message
+    assert "the scheme is https, not http" in found.message and "the port" in found.message
+    assert f"signed {PUBLIC}" in found.message
+
+
+def test_the_host_header_and_forwarded_port_are_used_too():
+    public = "https://hooks.example.com:8443/hooks/twilio"
+    seen = "http://hookscope:8000/hooks/twilio"
+    headers = {"Host": "hooks.example.com", "X-Forwarded-Proto": "https", "X-Forwarded-Port": "8443"}
+    assert diagnose(twilio_seen(seen, public, headers)).cause == "url_mismatch"
+
+
+def test_a_comma_separated_forwarded_chain_uses_the_first_hop():
+    headers = {"X-Forwarded-Proto": "https, http", "X-Forwarded-Host": "hooks.example.com, internal"}
+    seen = "http://hookscope:8000/hooks/twilio"
+    assert diagnose(twilio_seen(seen, headers=headers)).cause == "url_mismatch"
+
+
+def test_an_unrelated_url_with_no_hint_is_left_to_the_general_checklist():
+    arrived = twilio_seen("https://somewhere-else.example.net/hooks/twilio")
+    assert arrived.result.status == "invalid"
+    assert diagnose(arrived).cause == "unexplained"
+
+
+def test_providers_that_do_not_sign_the_url_are_never_given_this_diagnosis():
+    assert not any(p.url_signed for name, p in PROVIDERS.items() if name != "twilio")
+    arrived = with_configured_secret("github", "wrong")
+    assert diagnose(arrived).cause == "unexplained"
+
+
+def test_the_candidate_urls_are_distinct_and_never_include_the_seen_one():
+    seen = "https://hooks.example.com/hooks/twilio?b=2&a=1"
+    urls = [u for u, _ in diagnostics.url_variants(seen, {})]
+    assert len(urls) == len(set(urls)) and seen not in urls
+    assert "https://hooks.example.com/hooks/twilio?a=1&b=2" in urls
+
+
+def test_the_smallest_change_is_tried_first():
+    ordered = [what for _, what in diagnostics.url_variants("http://h.example/hooks/twilio", {})]
+    counts = [what.count(";") for what in ordered]
+    assert counts == sorted(counts)
+
+
+def test_ipv6_hosts_and_unknown_schemes_do_not_break_the_port_toggle():
+    assert diagnostics._toggle_port("https", "[::1]:8000") is None
+    assert diagnostics._toggle_port("ftp", "example.com") is None
+    assert diagnostics._toggle_port("https", "example.com") == "example.com:443"
+    assert diagnostics._toggle_port("https", "example.com:443") == "example.com"
+    assert diagnostics._toggle_port("https", "example.com:8443") is None
+
+
+def test_the_url_check_runs_after_the_clock_check_and_before_the_fallback():
+    names = [d.__name__ for d in DETECTORS]
+    assert names.index("timestamp_skew") < names.index("url_mismatch") < names.index("unexplained_mismatch")

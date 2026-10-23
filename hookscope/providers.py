@@ -39,6 +39,38 @@ def _svix_timestamp(headers: Mapping[str, str]) -> int | None:
     return _digits(_header(headers, f"{prefix}-timestamp"))
 
 
+def _github_signatures(headers: Mapping[str, str]) -> list[tuple[str | None, str]]:
+    value = _header(headers, "x-hub-signature-256")
+    if not value:
+        return []
+    claimed, _, digest = value.partition("=")
+    return [(claimed, digest)] if digest else [(None, value)]
+
+
+def _stripe_signatures(headers: Mapping[str, str]) -> list[tuple[str | None, str]]:
+    parts = (_header(headers, "stripe-signature") or "").split(",")
+    return [(None, v) for k, _, v in (p.strip().partition("=") for p in parts) if k == "v1" and v]
+
+
+def _slack_signatures(headers: Mapping[str, str]) -> list[tuple[str | None, str]]:
+    version, _, digest = (_header(headers, "x-slack-signature") or "").partition("=")
+    return [(None, digest)] if version == "v0" and digest else []
+
+
+def _svix_signatures(headers: Mapping[str, str]) -> list[tuple[str | None, str]]:
+    prefix = "svix" if _header(headers, "svix-signature") else "webhook"
+    entries = (_header(headers, f"{prefix}-signature") or "").split()
+    return [(None, d) for v, _, d in (e.partition(",") for e in entries) if v == "v1" and d]
+
+
+def _single_header(name: str) -> Callable[[Mapping[str, str]], list[tuple[str | None, str]]]:
+    def read(headers: Mapping[str, str]) -> list[tuple[str | None, str]]:
+        value = _header(headers, name)
+        return [(None, value)] if value else []
+
+    return read
+
+
 @dataclass(frozen=True)
 class Provider:
     name: str
@@ -49,6 +81,11 @@ class Provider:
     # number of seconds either side of now that the verifier accepts it.
     timestamp_from: Callable[[Mapping[str, str]], int | None] | None = None
     timestamp_tolerance: int = 0
+    # The signature as the provider sends it: (encoding, digest) it uses, and how to pull the digests
+    # out of a request as (algorithm the sender names, digest text) pairs. Used to spot a signature made
+    # with the wrong algorithm or in the wrong encoding.
+    signature_form: tuple[str, str] | None = None
+    signatures_from: Callable[[Mapping[str, str]], list[tuple[str | None, str]]] | None = None
     # Other header names the verifier accepts for the signature (lower case).
     signature_header_aliases: tuple[str, ...] = ()
     # The signature covers the public URL, so ``verify`` also needs it.
@@ -102,6 +139,8 @@ PROVIDERS: dict[str, Provider] = {
             "github",
             signatures.verify_github,
             signature_header="X-Hub-Signature-256",
+            signature_form=("hex", "SHA-256"),
+            signatures_from=_github_signatures,
             event_type_header="x-github-event",
             delivery_id_header="x-github-delivery",
         ),
@@ -109,6 +148,8 @@ PROVIDERS: dict[str, Provider] = {
             "stripe",
             signatures.verify_stripe,
             signature_header="Stripe-Signature",
+            signature_form=("hex", "SHA-256"),
+            signatures_from=_stripe_signatures,
             timestamp_header="Stripe-Signature",
             timestamp_from=_stripe_timestamp,
             timestamp_tolerance=signatures.STRIPE_TOLERANCE_SECONDS,
@@ -118,6 +159,8 @@ PROVIDERS: dict[str, Provider] = {
             "shopify",
             signatures.verify_shopify,
             signature_header="X-Shopify-Hmac-Sha256",
+            signature_form=("base64", "SHA-256"),
+            signatures_from=_single_header("x-shopify-hmac-sha256"),
             event_type_header="x-shopify-topic",
             delivery_id_header="x-shopify-webhook-id",
         ),
@@ -125,6 +168,8 @@ PROVIDERS: dict[str, Provider] = {
             "slack",
             signatures.verify_slack,
             signature_header="X-Slack-Signature",
+            signature_form=("hex", "SHA-256"),
+            signatures_from=_slack_signatures,
             timestamp_header="X-Slack-Signature",
             timestamp_from=_slack_timestamp,
             timestamp_tolerance=signatures.SLACK_TOLERANCE_SECONDS,
@@ -135,6 +180,8 @@ PROVIDERS: dict[str, Provider] = {
             "twilio",
             signatures.verify_twilio,
             signature_header="X-Twilio-Signature",
+            signature_form=("base64", "SHA-1"),
+            signatures_from=_single_header("x-twilio-signature"),
             url_signed=True,
             delivery_id_header="i-twilio-idempotency-token",
             replay_note=(
@@ -145,13 +192,21 @@ PROVIDERS: dict[str, Provider] = {
             "svix",
             signatures.verify_svix,
             signature_header="svix-signature",
+            signature_form=("base64", "SHA-256"),
+            signatures_from=_svix_signatures,
             signature_header_aliases=("webhook-signature",),
             timestamp_header="svix-signature",
             timestamp_from=_svix_timestamp,
             timestamp_tolerance=signatures.SVIX_TOLERANCE_SECONDS,
             delivery_id_header="svix-id",
         ),
-        Provider("generic", signatures.verify_generic, signature_header="X-Signature"),
+        Provider(
+            "generic",
+            signatures.verify_generic,
+            signature_header="X-Signature",
+            signature_form=("hex", "SHA-256"),
+            signatures_from=_single_header("x-signature"),
+        ),
     )
 }
 

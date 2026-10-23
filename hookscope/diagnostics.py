@@ -13,8 +13,11 @@ explaining a failure must never turn a stored delivery into a server error.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import logging
+import re
 import time
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import asdict, dataclass
@@ -104,6 +107,76 @@ def wrong_provider(delivery: Delivery) -> Diagnosis | None:
             f"/hooks/{delivery.source}, which expects {PROVIDERS[delivery.source].signature_header}.",
             f"Point the {name} webhook at {corrected}, or if this is meant for {delivery.source} send it "
             f"with a {PROVIDERS[delivery.source].signature_header} header.",
+        )
+    return None
+
+
+DIGEST_BYTES = {16: "MD5", 20: "SHA-1", 28: "SHA-224", 32: "SHA-256", 48: "SHA-384", 64: "SHA-512"}
+
+
+def classify_digest(text: str) -> tuple[str, str] | None:
+    """``(encoding, algorithm)`` a signature value looks like, from its length and characters, or None.
+
+    A hex string is read as hex first: a 64-character hex digest is also valid base64, but of a
+    different (48-byte) length, so the order matters.
+    """
+    if re.fullmatch(r"[0-9a-fA-F]+", text) and len(text) % 2 == 0 and len(text) // 2 in DIGEST_BYTES:
+        return "hex", DIGEST_BYTES[len(text) // 2]
+    try:
+        raw = base64.b64decode(text, validate=True)
+    except (binascii.Error, ValueError):
+        return None
+    return ("base64", DIGEST_BYTES[len(raw)]) if len(raw) in DIGEST_BYTES else None
+
+
+def _alg_label(claimed: str | None) -> str | None:
+    """``sha1`` to ``SHA-1``: the algorithm a sender names in a ``sha1=<digest>`` prefix."""
+    match = re.fullmatch(r"sha-?(\d+)", (claimed or "").lower())
+    return f"SHA-{match.group(1)}" if match else None
+
+
+@detector
+def wrong_signature_scheme(delivery: Delivery) -> Diagnosis | None:
+    """The signature is made with another algorithm or in another encoding than the provider's."""
+    provider = PROVIDERS[delivery.source]
+    if provider.signature_form is None or provider.signatures_from is None:
+        return None
+    expected_encoding, expected_algorithm = provider.signature_form
+    header = provider.signature_header
+    if delivery.result.status == "unsigned" and delivery.source == "github":
+        if delivery.header("X-Hub-Signature") is not None:
+            return Diagnosis(
+                "wrong_signature_scheme",
+                "The request has X-Hub-Signature, GitHub's older SHA-1 signature, but not "
+                "X-Hub-Signature-256, which is the one HookScope checks.",
+                "Make the sender sign with HMAC-SHA256 and send X-Hub-Signature-256; the SHA-1 header is "
+                "deprecated and HookScope does not accept it.",
+            )
+        return None
+    if delivery.result.status != "invalid":
+        return None
+    for claimed, text in provider.signatures_from(delivery.headers):
+        form = classify_digest(text)
+        if form is not None:
+            # The digest itself says more than a prefix: ``sha256=`` before 128 hex digits is SHA-512.
+            encoding, algorithm = form
+            if (algorithm, encoding) == (expected_algorithm, expected_encoding):
+                continue
+        else:
+            # Unreadable digest: only a prefix naming another algorithm (``sha1=...``) is evidence.
+            encoding, algorithm = None, _alg_label(claimed)
+            if algorithm is None or algorithm == expected_algorithm:
+                continue
+        if encoding is None:  # a named algorithm with a digest we cannot read: say only what is named
+            seen = f"{algorithm} digest"
+        else:
+            seen = f"{algorithm} digest, {encoding}-encoded ({len(text)} characters)"
+        return Diagnosis(
+            "wrong_signature_scheme",
+            f"The {header} value looks like a {seen}, but {delivery.source} signs with HMAC-"
+            f"{expected_algorithm} and sends it {expected_encoding}-encoded.",
+            f"Check how the sender is configured: it must use HMAC-{expected_algorithm} with the "
+            f"{expected_encoding} encoding for {delivery.source}, and the {header} header.",
         )
     return None
 

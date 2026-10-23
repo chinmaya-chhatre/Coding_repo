@@ -674,3 +674,120 @@ def test_a_secret_with_stray_whitespace_is_still_reported_as_whitespace_first():
     names = [d.__name__ for d in DETECTORS]
     assert names.index("secret_has_stray_characters") < names.index("secret_in_wrong_form")
     assert names.index("secret_in_wrong_form") < names.index("body_changed_in_transit")
+
+
+# ---------------------------------------------------------------- wrong algorithm or encoding
+
+
+def digest(algorithm: str, key: bytes, payload: bytes) -> bytes:
+    return hmac.new(key, payload, getattr(hashlib, algorithm)).digest()
+
+
+def resigned(source, header, value):
+    """A good sample whose signature header was replaced, checked by the real verifier."""
+    sample = build_sample(source, SECRETS[source], url=URL)
+    headers = {**sample.headers, header: value}
+    result = providers.verify(source, sample.body, headers, SECRETS[source], url=URL)
+    return Delivery(source, sample.body, headers, SECRETS[source], URL, result)
+
+
+def hexed(algorithm, body=b"x"):
+    return digest(algorithm, b"k", body).hex()
+
+
+def b64(algorithm, body=b"x"):
+    return base64.b64encode(digest(algorithm, b"k", body)).decode()
+
+
+@pytest.mark.parametrize(
+    ("source", "header", "value", "seen"),
+    [
+        ("github", "X-Hub-Signature-256", f"sha1={hexed('sha1')}", "SHA-1 digest"),
+        ("github", "X-Hub-Signature-256", f"sha256={b64('sha256')}", "SHA-256 digest, base64-encoded"),
+        ("github", "X-Hub-Signature-256", f"sha256={hexed('sha512')}", "SHA-512 digest, hex-encoded"),
+        ("generic", "X-Signature", b64("sha256"), "SHA-256 digest, base64-encoded"),
+        ("generic", "X-Signature", hexed("sha1"), "SHA-1 digest, hex-encoded (40 characters)"),
+        ("shopify", "X-Shopify-Hmac-Sha256", hexed("sha256"), "SHA-256 digest, hex-encoded"),
+        ("shopify", "X-Shopify-Hmac-Sha256", b64("sha1"), "SHA-1 digest, base64-encoded"),
+        ("twilio", "X-Twilio-Signature", b64("sha256"), "SHA-256 digest, base64-encoded"),
+        ("twilio", "X-Twilio-Signature", hexed("sha1"), "SHA-1 digest, hex-encoded"),
+        ("slack", "X-Slack-Signature", f"v0={b64('sha256')}", "base64-encoded"),
+        ("slack", "X-Slack-Signature", f"v0={hexed('sha1')}", "SHA-1 digest"),
+        ("stripe", "Stripe-Signature", f"t={NOW},v1={hexed('sha1')}", "SHA-1 digest, hex-encoded"),
+        ("stripe", "Stripe-Signature", f"t={NOW},v1={b64('sha256')}", "base64-encoded"),
+        ("svix", "svix-signature", f"v1,{hexed('sha256')}", "SHA-256 digest, hex-encoded"),
+        ("svix", "svix-signature", f"v1,{b64('sha1')}", "SHA-1 digest, base64-encoded"),
+    ],
+)
+def test_a_signature_of_the_wrong_kind_is_named(source, header, value, seen):
+    arrived = resigned(source, header, value)
+    assert arrived.result.status == "invalid"
+    found = diagnose(arrived)
+    assert found.cause == "wrong_signature_scheme"
+    assert seen in found.message
+    expected_encoding, expected_algorithm = PROVIDERS[source].signature_form
+    assert f"HMAC-{expected_algorithm}" in found.message and f"{expected_encoding}-encoded" in found.message
+    assert PROVIDERS[source].signature_header in found.fix
+
+
+@pytest.mark.parametrize("source", sorted(PROVIDERS))
+def test_the_right_kind_of_signature_with_the_wrong_secret_is_not_a_scheme_problem(source):
+    wrong = "whsec_d3Jvbmctc2VjcmV0LXdyb25n" if source == "svix" else "another-secret"
+    arrived = with_configured_secret(source, wrong)
+    assert arrived.result.status == "invalid"
+    assert diagnose(arrived).cause == "unexplained"
+
+
+def test_githubs_older_sha1_header_alone_is_explained():
+    sample = build_sample("github", SECRETS["github"], url=URL)
+    headers = {k: v for k, v in sample.headers.items() if k != "X-Hub-Signature-256"}
+    headers["X-Hub-Signature"] = f"sha1={hexed('sha1')}"
+    result = providers.verify("github", sample.body, headers, SECRETS["github"])
+    assert result.status == "unsigned"
+    found = diagnose(Delivery("github", sample.body, headers, SECRETS["github"], URL, result))
+    assert found.cause == "wrong_signature_scheme"
+    assert "older SHA-1 signature" in found.message and "deprecated" in found.fix
+
+
+def test_an_unsigned_github_request_with_no_legacy_header_is_just_unsigned():
+    sample = build_sample("github", SECRETS["github"], url=URL)
+    headers = {k: v for k, v in sample.headers.items() if k != "X-Hub-Signature-256"}
+    result = providers.verify("github", sample.body, headers, SECRETS["github"])
+    found = diagnose(Delivery("github", sample.body, headers, SECRETS["github"], URL, result))
+    assert found.cause == "missing_signature"
+
+
+def test_the_first_matching_value_of_several_is_reported():
+    headers = {"Stripe-Signature": f"t={NOW},v1={hexed('sha1')},v1={hexed('sha256')}"}
+    found = diagnose(resigned("stripe", "Stripe-Signature", headers["Stripe-Signature"]))
+    assert found.cause == "wrong_signature_scheme" and "SHA-1" in found.message
+
+
+def test_a_value_that_looks_like_nothing_is_left_to_the_general_checklist():
+    for junk in ("sha256=not-a-digest", "sha256=" + "!" * 64, "sha256="):
+        assert diagnose(resigned("github", "X-Hub-Signature-256", junk)).cause == "unexplained"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (hexed("md5"), ("hex", "MD5")),
+        (hexed("sha1"), ("hex", "SHA-1")),
+        (hexed("sha256"), ("hex", "SHA-256")),
+        (hexed("sha512"), ("hex", "SHA-512")),
+        (b64("sha1"), ("base64", "SHA-1")),
+        (b64("sha256"), ("base64", "SHA-256")),
+        ("abc", None),
+        ("", None),
+        ("0" * 62, None),
+    ],
+)
+def test_digests_are_classified_by_length_and_encoding(text, expected):
+    assert diagnostics.classify_digest(text) == expected
+
+
+def test_the_scheme_check_comes_before_the_clock_and_the_secret_checks():
+    names = [d.__name__ for d in DETECTORS]
+    assert names.index("wrong_provider") < names.index("wrong_signature_scheme")
+    assert names.index("wrong_signature_scheme") < names.index("timestamp_skew")
+    assert names.index("wrong_signature_scheme") < names.index("secret_has_stray_characters")

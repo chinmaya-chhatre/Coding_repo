@@ -50,7 +50,7 @@ No backend: signatures are computed in the browser with Web Crypto.
 - [x] P2.04 Detector: secret has stray whitespace, a newline or quotes
 - [x] P2.05 Detector: timestamp skew in seconds (clock drift vs replay) for Stripe, Slack, Svix
 - [x] P2.06 Detector: Twilio URL mismatch (http/https, trailing slash, port, query order); say which URL was signed
-- [ ] P2.07 Detector: `whsec_` prefix / base64 secret misuse (Stripe, Svix)
+- [x] P2.07 Detector: `whsec_` prefix / base64 secret misuse (Stripe, Svix)
 - [ ] P2.08 Detector: wrong scheme (sha1 vs sha256, hex vs base64)
 - [ ] P2.09 Persist the diagnosis on the event (migration) and return it in the API
 - [ ] P2.10 Dashboard "Why did this fail?" panel with the one-line fix

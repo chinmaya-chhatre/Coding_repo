@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import hmac
 import json
@@ -584,3 +585,92 @@ def test_ipv6_hosts_and_unknown_schemes_do_not_break_the_port_toggle():
 def test_the_url_check_runs_after_the_clock_check_and_before_the_fallback():
     names = [d.__name__ for d in DETECTORS]
     assert names.index("timestamp_skew") < names.index("url_mismatch") < names.index("unexplained_mismatch")
+
+
+# ---------------------------------------------------------------- Stripe and Svix secret forms
+
+
+def signed_with(source, signing_secret, configured):
+    """A delivery signed with ``signing_secret`` and checked by a HookScope configured with ``configured``."""
+    sample = build_sample(source, signing_secret, url=URL)
+    result = providers.verify(source, sample.body, sample.headers, configured, url=URL)
+    return Delivery(source, sample.body, sample.headers, configured, URL, result)
+
+
+def test_a_stripe_secret_pasted_without_its_prefix_is_recognised():
+    arrived = signed_with("stripe", "whsec_abc123def456", "abc123def456")
+    assert arrived.result.status == "invalid"
+    found = diagnose(arrived)
+    assert found.cause == "secret_prefix"
+    assert "the whsec_ prefix added" in found.message and "HOOKSCOPE_SECRET_STRIPE" in found.message
+    assert "whole string, including whsec_" in found.message and "exactly as shown" in found.fix
+
+
+def test_a_stripe_secret_with_a_prefix_it_should_not_have_is_recognised_too():
+    found = diagnose(signed_with("stripe", "plain-secret-value", "whsec_plain-secret-value"))
+    assert found.cause == "secret_prefix" and "the whsec_ prefix removed" in found.message
+
+
+def test_the_diagnosis_does_not_repeat_the_stripe_secret():
+    found = diagnose(signed_with("stripe", "whsec_abc123def456", "abc123def456"))
+    assert "abc123def456" not in repr(found)
+
+
+KEY = b"secret-key-12"  # 13 bytes: its base64 ends in padding
+STANDARD = "whsec_" + base64.b64encode(KEY).decode()
+
+
+def test_svix_padding_that_was_trimmed_off_is_recognised():
+    assert STANDARD.endswith("==")
+    arrived = signed_with("svix", STANDARD, STANDARD.rstrip("="))
+    assert arrived.result.status == "invalid" and "not a valid whsec_ key" in arrived.result.reason
+    found = diagnose(arrived)
+    assert found.cause == "secret_encoding" and "its = padding added" in found.message
+    assert "HOOKSCOPE_SECRET_SVIX" in found.message and "do not shorten" in found.fix
+
+
+def test_svix_url_safe_base64_is_recognised():
+    key = bytes([0xFB, 0xFF, 0xFE, 0xFB, 0xFF, 0xFE])
+    standard = "whsec_" + base64.b64encode(key).decode()
+    url_safe = "whsec_" + base64.urlsafe_b64encode(key).decode()
+    assert standard != url_safe
+    found = diagnose(signed_with("svix", standard, url_safe))
+    assert found.cause == "secret_encoding" and "URL-safe characters" in found.message
+
+
+def test_url_safe_and_trimmed_at_once_is_recognised():
+    key = bytes([0xFB, 0xFF, 0xFE, 0xFB, 0xFF])  # 5 bytes: padding too
+    standard = "whsec_" + base64.b64encode(key).decode()
+    mangled = "whsec_" + base64.urlsafe_b64encode(key).decode().rstrip("=")
+    found = diagnose(signed_with("svix", standard, mangled))
+    assert found.cause == "secret_encoding" and "padding" in found.message
+
+
+def test_a_svix_secret_that_is_not_base64_at_all_is_explained():
+    arrived = signed_with("svix", STANDARD, "whsec_!!not base64!!")
+    assert "not a valid whsec_ key" in arrived.result.reason
+    found = diagnose(arrived)
+    assert found.cause == "svix_secret_invalid"
+    assert "must be base64" in found.message and "starting with whsec_" in found.fix
+
+
+def test_a_wrong_but_well_formed_svix_secret_is_left_to_the_general_checklist():
+    other = "whsec_" + base64.b64encode(b"a different key").decode()
+    assert diagnose(signed_with("svix", STANDARD, other)).cause == "unexplained"
+
+
+def test_a_wrong_stripe_secret_is_not_blamed_on_the_prefix():
+    assert diagnose(signed_with("stripe", "whsec_right", "whsec_wrong")).cause == "unexplained"
+
+
+def test_other_providers_have_no_form_variants():
+    for source in ("github", "shopify", "slack", "twilio", "generic"):
+        assert list(diagnostics.secret_form_variants(source, "whatever")) == []
+
+
+def test_a_secret_with_stray_whitespace_is_still_reported_as_whitespace_first():
+    found = diagnose(signed_with("stripe", "whsec_abc", "whsec_abc\n"))
+    assert found.cause == "secret_whitespace"
+    names = [d.__name__ for d in DETECTORS]
+    assert names.index("secret_has_stray_characters") < names.index("secret_in_wrong_form")
+    assert names.index("secret_in_wrong_form") < names.index("body_changed_in_transit")

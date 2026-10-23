@@ -317,6 +317,68 @@ def secret_has_stray_characters(delivery: Delivery) -> Diagnosis | None:
     return None
 
 
+def secret_form_variants(source: str, secret: str) -> Iterator[tuple[str, str, str]]:
+    """The secret in other forms people mistake it for, as (cause, what changed, secret).
+
+    Stripe uses the whole ``whsec_...`` string as the key; Svix and Standard Webhooks strip the prefix and
+    base64-decode the rest. Mixing the two up, trimming the ``=`` padding or pasting a URL-safe variant
+    are the usual slips.
+    """
+    if source == "stripe":
+        if secret.startswith("whsec_"):
+            yield "secret_prefix", "the whsec_ prefix removed", secret.removeprefix("whsec_")
+        else:
+            yield "secret_prefix", "the whsec_ prefix added", "whsec_" + secret
+    elif source == "svix":
+        body = secret.removeprefix("whsec_")
+        standard = body.replace("-", "+").replace("_", "/")
+        for text, what in (
+            (standard, "its URL-safe characters (- and _) changed to + and /"),
+            (body + "=" * (-len(body) % 4), "its = padding added"),
+            (standard + "=" * (-len(standard) % 4), "URL-safe characters changed and padding added"),
+        ):
+            if text != body:
+                yield "secret_encoding", what, "whsec_" + text
+
+
+@detector
+def secret_in_wrong_form(delivery: Delivery) -> Diagnosis | None:
+    """Stripe versus Svix secret handling: a missing ``whsec_`` prefix, lost padding, a bad key."""
+    if delivery.result.status != "invalid" or not delivery.secret:
+        return None
+    variable = f"HOOKSCOPE_SECRET_{delivery.source.upper()}"
+    for cause, what, candidate in secret_form_variants(delivery.source, delivery.secret):
+        again = verify(
+            delivery.source, delivery.body, delivery.headers, candidate, url=delivery.url, now=delivery.now
+        )
+        if again.status != "valid":
+            continue
+        if cause == "secret_prefix":
+            return Diagnosis(
+                cause,
+                f"The signature is valid if {variable} has {what}: Stripe's signing secret is the whole "
+                "string, including whsec_, and it is not decoded.",
+                f"Copy the endpoint's signing secret from the Stripe dashboard exactly as shown, "
+                f"starting with whsec_, into {variable}.",
+            )
+        return Diagnosis(
+            cause,
+            f"The signature is valid if {variable} has {what}: Svix signing secrets are whsec_ followed "
+            "by standard base64, which HookScope decodes.",
+            f"Copy the signing secret from the Svix (or Standard Webhooks) dashboard exactly as shown into "
+            f"{variable}; do not shorten it or change its characters.",
+        )
+    if delivery.source == "svix" and delivery.result.reason.startswith("configured secret is not a valid"):
+        return Diagnosis(
+            "svix_secret_invalid",
+            f"{variable} is not a usable Svix signing secret: after the whsec_ prefix it must be base64, "
+            "and it is not.",
+            f"Copy the whole signing secret from the Svix (or Standard Webhooks) dashboard, starting with "
+            f"whsec_, into {variable}.",
+        )
+    return None
+
+
 # Re-verifying variants of a big body is cheap, but there is no reason to do it for megabytes.
 MAX_VARIANT_BYTES = 256 * 1024
 BOM = b"\xef\xbb\xbf"

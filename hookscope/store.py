@@ -22,7 +22,9 @@ CREATE TABLE IF NOT EXISTS events (
     -- The exact bytes, only for bodies that are not valid UTF-8 (``body`` is then lossy).
     body_base64   TEXT,
     -- X-Request-ID the sender supplied, or the one HookScope generated for the request.
-    request_id    TEXT
+    request_id    TEXT,
+    -- Why a rejected delivery failed: JSON {"cause", "message", "fix"}, null when it was not rejected.
+    diagnosis     TEXT
 );
 
 CREATE TABLE IF NOT EXISTS forwards (
@@ -101,6 +103,7 @@ class EventStore:
         reason: str,
         raw_body: bytes | None = None,
         request_id: str | None = None,
+        diagnosis: dict[str, str] | None = None,
     ) -> int:
         """Store an event. Pass ``raw_body`` (the bytes as received) so that bodies which
         are not valid UTF-8 can later be replayed and forwarded byte for byte."""
@@ -113,8 +116,9 @@ class EventStore:
         with self._connect() as conn:
             cur = conn.execute(
                 "INSERT INTO events "
-                "(source, received_at, headers, body, verification, reason, body_base64, request_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "(source, received_at, headers, body, verification, reason, body_base64, request_id, "
+                "diagnosis) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     source,
                     _now(),
@@ -124,6 +128,7 @@ class EventStore:
                     reason,
                     body_base64,
                     request_id,
+                    json.dumps(diagnosis) if diagnosis else None,
                 ),
             )
             return int(cur.lastrowid)
@@ -303,6 +308,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE events ADD COLUMN body_base64 TEXT")
     if "request_id" not in event_columns:
         conn.execute("ALTER TABLE events ADD COLUMN request_id TEXT")
+    if "diagnosis" not in event_columns:
+        conn.execute("ALTER TABLE events ADD COLUMN diagnosis TEXT")
 
 
 # Headers that carry the sender's credentials for *some* service. HookScope authenticates
@@ -357,4 +364,16 @@ def time_bound(value: str, end: bool = False) -> str:
 def _to_dict(row: sqlite3.Row) -> dict:
     event = dict(row)
     event["headers"] = json.loads(event["headers"])
+    event["diagnosis"] = _load_diagnosis(event.get("diagnosis"))
     return event
+
+
+def _load_diagnosis(raw: str | None) -> dict[str, str] | None:
+    """The stored diagnosis, or None when there is none or it cannot be read."""
+    if not raw:
+        return None
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) else None

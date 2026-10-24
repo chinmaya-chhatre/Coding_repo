@@ -87,6 +87,17 @@ class ReadyOut(BaseModel):
     checks: dict[str, CheckOut] = Field(description="One entry per dependency, e.g. `database`.")
 
 
+class DiagnosisOut(BaseModel):
+    """Why a signature check failed, and what to change."""
+
+    cause: str = Field(
+        description="A short stable identifier, e.g. `missing_signature` or `stale_timestamp`.",
+        examples=["secret_whitespace"],
+    )
+    message: str = Field(description="What went wrong, in one sentence.")
+    fix: str = Field(description="What to change, in one sentence.")
+
+
 class ReceiveOut(BaseModel):
     """What a provider gets back from `POST /hooks/{source}`."""
 
@@ -94,6 +105,9 @@ class ReceiveOut(BaseModel):
     verification: Verification = Field(description=VERIFICATION_DESCRIPTION)
     reason: str = Field(description="Why verification failed; empty when it passed.")
     forwarded_to: list[str] = Field(description="Names of the forwarding rules this event matched.")
+    diagnosis: DiagnosisOut | None = Field(
+        default=None, description="Why a rejected delivery failed; null when it was not rejected."
+    )
 
 
 class SlackChallengeOut(BaseModel):
@@ -115,6 +129,9 @@ class EventOut(BaseModel):
     )
     request_id: str | None = Field(
         description="`X-Request-ID` of the delivery (the sender's or a generated one); null for older events."
+    )
+    diagnosis: DiagnosisOut | None = Field(
+        description="Why a rejected (`invalid` or `unsigned`) delivery failed and what to change; else null."
     )
 
 

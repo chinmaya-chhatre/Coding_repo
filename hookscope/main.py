@@ -19,6 +19,7 @@ from fastapi.templating import Jinja2Templates
 from . import __version__, auth, errors, logs, metrics, request_id
 from .config import Settings
 from .curl import build_curl, redacted_headers
+from .diagnostics import Delivery, diagnose
 from .errors import ApiError
 from .providers import PROVIDERS, delivery_id, verify
 from .replay import InvalidTargetError, ReplayResult, replay_event
@@ -308,6 +309,7 @@ def create_app(
     ) -> JSONResponse:
         """Verify, store and forward one delivery; shared by the real endpoint and the provider test."""
         result = verify(source, body, headers, secrets.get(source), url=url)
+        diagnosis = diagnose(Delivery(source, body, headers, secrets.get(source), url, result))
         event_id = store.add(
             source=source,
             headers=headers,
@@ -316,6 +318,7 @@ def create_app(
             verification=result.status,
             reason=result.reason,
             request_id=rid,
+            diagnosis=diagnosis.to_dict() if diagnosis else None,
         )
         log.log(
             logging.WARNING if result.rejected else logging.INFO,
@@ -325,6 +328,7 @@ def create_app(
                 "source": source,
                 "verification": result.status,
                 "reason": result.reason or None,
+                "cause": diagnosis.cause if diagnosis else None,
                 "delivery_id": delivery_id(source, headers, body),
                 "bytes": len(body),
             },
@@ -347,6 +351,7 @@ def create_app(
                 "verification": result.status,
                 "reason": result.reason,
                 "forwarded_to": [rule.name for rule in to_forward],
+                "diagnosis": diagnosis.to_dict() if diagnosis else None,
             },
             status_code=status_code,
             background=background,

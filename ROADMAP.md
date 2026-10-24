@@ -53,7 +53,7 @@ No backend: signatures are computed in the browser with Web Crypto.
 - [x] P2.07 Detector: `whsec_` prefix / base64 secret misuse (Stripe, Svix)
 - [x] P2.08 Detector: wrong scheme (sha1 vs sha256, hex vs base64)
 - [x] P2.09 Persist the diagnosis on the event (migration) and return it in the API
-- [ ] P2.10 Dashboard "Why did this fail?" panel with the one-line fix
+- [x] P2.10 Dashboard "Why did this fail?" panel with the one-line fix
 - [ ] P2.11 Metric `hookscope_signature_failures_total{source,cause}`
 - [ ] P2.12 Troubleshooting guide generated from the detector registry; a test keeps the doc in sync
 

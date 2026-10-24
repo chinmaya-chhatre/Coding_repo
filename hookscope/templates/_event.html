@@ -5,6 +5,7 @@
       <span class="badge {{ e.verification }}">{{ e.verification }}</span>
       <span class="muted">{{ e.received_at }}</span>
       {% if e.reason %}<span class="muted">{{ e.reason }}</span>{% endif %}
+      {% if e.diagnosis %}<span class="muted cause">{{ e.diagnosis.cause }}</span>{% endif %}
       {% if e.forwards %}
       <span class="badge {{ 'fwd-err' if e.forwards_failed else 'fwd-ok' }}">
         forwarded {{ e.forwards | length }}{% if e.forwards_failed %}, {{ e.forwards_failed }} failed{% endif %}
@@ -12,6 +13,14 @@
       {% endif %}
     </summary>
     <p class="muted"><a href="/events/{{ e.id }}">Permalink</a>{% if e.request_id %} &middot; Request ID <code>{{ e.request_id }}</code>{% endif %}</p>
+    {% if e.diagnosis %}
+    <section class="diagnosis" aria-label="Why event {{ e.id }} failed">
+      <h2>Why did this fail?</h2>
+      <p class="diagnosis-message">{{ e.diagnosis.message }}</p>
+      <p class="diagnosis-fix"><strong>Fix:</strong> {{ e.diagnosis.fix }}</p>
+      <p class="muted">Cause: <code>{{ e.diagnosis.cause }}</code></p>
+    </section>
+    {% endif %}
     <pre>{{ e.pretty_body }}</pre>
     <pre>{% for k, v in e.headers.items() %}{{ k }}: {{ v }}
 {% endfor %}</pre>

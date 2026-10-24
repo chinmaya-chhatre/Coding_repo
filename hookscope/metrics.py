@@ -52,6 +52,16 @@ def render(store: EventStore, sources: Iterable[str], dead_letters: int) -> str:
         ],
     )
     lines += _family(
+        "hookscope_signature_failures_total",
+        "counter",
+        "Rejected deliveries (invalid or unsigned) by source and diagnosed cause; a series appears "
+        "with its first failure.",
+        [
+            (_labels(source=source, cause=cause), count)
+            for source, cause, count in sorted(store.failure_counts())
+        ],
+    )
+    lines += _family(
         "hookscope_forward_attempts_total",
         "counter",
         "Forward attempts by rule and outcome (success means a 2xx response).",

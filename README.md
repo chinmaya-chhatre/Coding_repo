@@ -42,7 +42,8 @@ a replayed request. HookScope makes each of those visible.
 - Retention: automatic purging by age and/or event count, plus an on-demand `POST /api/purge`
 - One-step deploys: Dockerfile with a non-root entrypoint, `fly.toml` and a Render `render.yaml`
 - Prometheus metrics at `GET /metrics`: deliveries by source and verification result,
-  forward attempts by rule and outcome, and the dead-letter count
+  signature failures by source and diagnosed cause, forward attempts by rule and outcome, and the
+  dead-letter count
 - Typed JSON API: every endpoint's request and response is described by a Pydantic model, so
   `/openapi.json` and the interactive `/docs` show exact schemas, including error bodies, with
   grouped, summarised operations and request examples (behind the admin password when one is set).
@@ -263,6 +264,7 @@ before putting them in the rules file.
 | Metric | Type | Labels |
 |---|---|---|
 | `hookscope_deliveries_total` | counter | `source`, `verification` (`valid`, `invalid`, `unsigned`, `no_secret`) |
+| `hookscope_signature_failures_total` | counter | `source`, `cause` (the diagnosis: `missing_signature`, `wrong_provider`, `stale_timestamp`, `secret_whitespace`, `body_reencoded`, ..., `unexplained`, or `undiagnosed` for events stored before diagnoses existed) |
 | `hookscope_forward_attempts_total` | counter | `rule`, `outcome` (`success` = 2xx, else `failure`) |
 | `hookscope_dead_letters` | gauge | none |
 | `hookscope_info` | gauge | `version` |
@@ -283,6 +285,8 @@ scrape_configs:
 
 For example, alert when signatures start failing:
 `sum by (source) (rate(hookscope_deliveries_total{verification="invalid"}[5m])) > 0`.
+Series of `hookscope_signature_failures_total` appear with a source's first failure of each cause, so the
+cause label tells you what to fix: `sum by (source, cause) (increase(hookscope_signature_failures_total[1h])) > 0`.
 
 ### API errors
 

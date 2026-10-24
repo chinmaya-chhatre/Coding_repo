@@ -258,6 +258,23 @@ class EventStore:
             ).fetchall()
         return [(row[0], row[1], row[2]) for row in rows]
 
+    def failure_counts(self) -> list[tuple[str, str, int]]:
+        """Rejected deliveries (``invalid`` or ``unsigned``) per (source, diagnosed cause).
+
+        Events stored before diagnoses existed, or whose diagnosis could not be read, count under
+        ``undiagnosed``.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT source, diagnosis, COUNT(*) FROM events "
+                "WHERE verification IN ('invalid', 'unsigned') GROUP BY source, diagnosis"
+            ).fetchall()
+        counts: dict[tuple[str, str], int] = {}
+        for source, raw, count in rows:
+            cause = (_load_diagnosis(raw) or {}).get("cause") or UNDIAGNOSED
+            counts[(source, cause)] = counts.get((source, cause), 0) + count
+        return [(source, cause, count) for (source, cause), count in counts.items()]
+
     def forward_counts(self) -> list[tuple[str, str, int]]:
         """Forward attempts per (rule, outcome), where outcome is "success" for a 2xx."""
         with self._connect() as conn:
@@ -296,6 +313,9 @@ class EventStore:
         for row in rows:
             grouped[row["event_id"]].append(dict(row))
         return grouped
+
+
+UNDIAGNOSED = "undiagnosed"
 
 
 def _migrate(conn: sqlite3.Connection) -> None:

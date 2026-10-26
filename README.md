@@ -76,8 +76,16 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 
 export HOOKSCOPE_SECRET_GITHUB=dev-secret
-uvicorn hookscope.main:app --reload
+python -m hookscope serve            # http://127.0.0.1:8000
 ```
+
+`python -m hookscope serve` is a thin wrapper around uvicorn. A flag overrides the matching `HOOKSCOPE_*`
+variable for that run: `--host`, `--port` (default `$PORT`, else 8000), `--db`, `--rules`, `--log-format`,
+`--log-level`, `--max-body-bytes`, and `--proxy-headers` for use behind a load balancer. Secrets are
+deliberately not flags (they would show up in the process list): set `HOOKSCOPE_SECRET_<SOURCE>`.
+`python -m hookscope serve --check` validates the configuration, prints what would run and exits; a bad
+setting stops the start with every mistake listed (exit status 2). During development
+`uvicorn hookscope.main:app --reload` still works.
 
 In another terminal, send a signed sample event, then open http://localhost:8000:
 
@@ -440,6 +448,7 @@ provider ──POST /hooks/{source}──▶ FastAPI ──▶ signatures.verify
 ```
 
 - `hookscope/signatures.py` — one pure function per provider, easy to unit test
+- `hookscope/cli.py` — the `hookscope` command line (`python -m hookscope serve`); flags override the `HOOKSCOPE_*` environment
 - `hookscope/troubleshooting.py` — generates `docs/troubleshooting.md`, the guide to every diagnosed cause, from the detector registry (`python -m hookscope.troubleshooting`); a test fails when the guide is out of date
 - `hookscope/diagnostics.py` — explains why a signature check failed (`Diagnosis(cause, message, fix)`): a registry of small detectors that runs only for rejected deliveries; detectors so far: a request sent to the wrong provider's endpoint (it carries another provider's headers), a body that was re-encoded on the way (re-verifies variants: compact or pretty JSON, key order, non-ASCII escaping, trailing newline, CRLF, BOM), a timestamp outside the window (Stripe, Slack, Svix: how many seconds old or in the future, and whether the clock or a replay is the likelier cause), a Twilio request whose signed URL differs from the one HookScope saw (scheme, host from a proxy's forwarding headers, trailing slash, port, query order; it says which URL was signed), a secret with a stray newline, whitespace or quotes, a signature made with the wrong algorithm or encoding (a SHA-1 digest, base64 where hex is expected, GitHub's older `X-Hub-Signature` only), a Stripe secret missing its `whsec_` prefix or a Svix secret with lost padding or URL-safe characters (and one that is not base64 at all), a missing signature header, and a general mismatch checklist; more are added one at a time
 - `hookscope/samples.py` — a signed example delivery per provider, behind `POST /api/providers/<name>/test` and `scripts/send_test_webhook.py`

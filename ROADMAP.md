@@ -55,7 +55,7 @@ No backend: signatures are computed in the browser with Web Crypto.
 - [x] P2.09 Persist the diagnosis on the event (migration) and return it in the API
 - [x] P2.10 Dashboard "Why did this fail?" panel with the one-line fix
 - [x] P2.11 Metric `hookscope_signature_failures_total{source,cause}`
-- [ ] P2.12 Troubleshooting guide generated from the detector registry; a test keeps the doc in sync
+- [x] P2.12 Troubleshooting guide generated from the detector registry; a test keeps the doc in sync
 
 ## P3 Command-line tool (10)
 - [ ] P3.01 `python -m hookscope serve` (uvicorn wrapper; flags override env)

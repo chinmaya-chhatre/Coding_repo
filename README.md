@@ -102,6 +102,12 @@ line exactly as `GET /api/events` returns it (handy with `jq`), and `--no-follow
 exits. With a dashboard password set, give it in `HOOKSCOPE_ADMIN_PASSWORD`. A server that restarts is waited
 for; a wrong password stops it with advice.
 
+`python -m hookscope replay <id> --to <url>` sends a stored event, with its body and original headers (signature
+included), to a URL and prints what the target answered: `HTTP 200 in 12 ms` and the start of its response. The
+exit status is 0 when the target answered below 400, 1 when it failed or was unreachable, and 2 when HookScope
+itself could not do it (unknown event, a URL that is not http(s), a wrong password). `--json` prints the API's
+answer. It is the command-line twin of the dashboard's **Replay** button.
+
 In another terminal, send a signed sample event, then open http://localhost:8000:
 
 ```bash
@@ -464,7 +470,7 @@ provider ──POST /hooks/{source}──▶ FastAPI ──▶ signatures.verify
 ```
 
 - `hookscope/signatures.py` — one pure function per provider, easy to unit test
-- `hookscope/cli.py` — the `hookscope` command line (`python -m hookscope serve`, `send` and `tail`); `serve` flags override the `HOOKSCOPE_*` environment
+- `hookscope/cli.py` — the `hookscope` command line (`python -m hookscope serve`, `send`, `tail` and `replay`); `serve` flags override the `HOOKSCOPE_*` environment
 - `hookscope/troubleshooting.py` — generates `docs/troubleshooting.md`, the guide to every diagnosed cause, from the detector registry (`python -m hookscope.troubleshooting`); a test fails when the guide is out of date
 - `hookscope/diagnostics.py` — explains why a signature check failed (`Diagnosis(cause, message, fix)`): a registry of small detectors that runs only for rejected deliveries; detectors so far: a request sent to the wrong provider's endpoint (it carries another provider's headers), a body that was re-encoded on the way (re-verifies variants: compact or pretty JSON, key order, non-ASCII escaping, trailing newline, CRLF, BOM), a timestamp outside the window (Stripe, Slack, Svix: how many seconds old or in the future, and whether the clock or a replay is the likelier cause), a Twilio request whose signed URL differs from the one HookScope saw (scheme, host from a proxy's forwarding headers, trailing slash, port, query order; it says which URL was signed), a secret with a stray newline, whitespace or quotes, a signature made with the wrong algorithm or encoding (a SHA-1 digest, base64 where hex is expected, GitHub's older `X-Hub-Signature` only), a Stripe secret missing its `whsec_` prefix or a Svix secret with lost padding or URL-safe characters (and one that is not base64 at all), a missing signature header, and a general mismatch checklist; more are added one at a time
 - `hookscope/samples.py` — a signed example delivery per provider, behind `POST /api/providers/<name>/test` and `python -m hookscope send`

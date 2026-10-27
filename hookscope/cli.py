@@ -1,7 +1,8 @@
-"""The ``hookscope`` command line: ``serve``, ``send`` and ``tail``.
+"""The ``hookscope`` command line: ``serve``, ``send``, ``tail`` and ``replay``.
 
 ``serve`` starts the app with uvicorn. ``send`` posts a signed sample delivery to a running HookScope in
-one of four scenarios. ``tail`` follows the events a running HookScope has stored.
+one of four scenarios. ``tail`` follows the events a running HookScope has stored. ``replay`` sends a
+stored event to a URL.
 
 Every setting of ``serve`` still comes from the ``HOOKSCOPE_*`` environment variables; a flag, when
 given, overrides the matching variable for this run. Secrets are deliberately not flags (they would show
@@ -104,6 +105,19 @@ def build_parser() -> argparse.ArgumentParser:
     tail.add_argument("--last", type=int, default=10, help="events to show first (default 10, 0 for none)")
     tail.add_argument("--interval", type=float, default=1.0, help="seconds between checks (default 1)")
     tail.add_argument("--no-follow", action="store_true", help="show the last events and exit")
+
+    replay = commands.add_parser(
+        "replay",
+        help="send a stored event to a URL",
+        description="Send the stored body and original headers of an event to a URL, through a running "
+        "HookScope, and print what the target answered. The exit status is 0 when the target answered "
+        "below 400, 1 when it failed, and 2 when HookScope could not do it (unknown event, bad URL, "
+        "wrong password). Set HOOKSCOPE_ADMIN_PASSWORD when the server has a password.",
+    )
+    replay.add_argument("event_id", type=int, help="the event's id, as shown by `tail` or the dashboard")
+    replay.add_argument("--to", required=True, metavar="URL", help="where to send it (an http(s) URL)")
+    replay.add_argument("--url", default="http://127.0.0.1:8000", help="where HookScope runs")
+    replay.add_argument("--json", action="store_true", help="print the API's answer as JSON")
     return parser
 
 
@@ -295,6 +309,48 @@ def tail(args: argparse.Namespace, fetch: Callable = get_json, sleep: Callable =
         return 0
 
 
+# ------------------------------------------------------------------------------------- replay
+
+
+def error_message(text: str) -> str:
+    """The message of HookScope's error body, or the text itself when it is not one."""
+    try:
+        return str(json.loads(text)["error"]["message"])
+    except (ValueError, KeyError, TypeError):
+        return text.strip() or "no explanation"
+
+
+def replay(args: argparse.Namespace, send_request: Callable = post) -> int:
+    base = args.url.rstrip("/")
+    headers = {"Content-Type": "application/json", **auth_headers()}
+    body = json.dumps({"target_url": args.to}).encode()
+    status, text = send_request(f"{base}/api/events/{args.event_id}/replay", body, headers)
+    if status is None:
+        print(f"hookscope: could not reach {base}: {text}", file=sys.stderr)
+        return 2
+    if status in (401, 403):
+        print("hookscope: HookScope wants a password: set HOOKSCOPE_ADMIN_PASSWORD", file=sys.stderr)
+        return 2
+    try:
+        answer = json.loads(text)
+    except ValueError:
+        answer = None
+    if not isinstance(answer, dict) or "ok" not in answer:  # an error body, not a replay result
+        print(f"hookscope: {error_message(text)}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(answer))
+    else:
+        print(f"replayed event #{args.event_id} to {answer['target_url']}")
+        if answer["status_code"] is None:
+            print(f"no response: {answer['error']}")
+        else:
+            print(f"HTTP {answer['status_code']} in {answer['elapsed_ms']} ms")
+            if answer["response_body"]:
+                print(answer["response_body"])
+    return 0 if answer["ok"] else 1
+
+
 def apply_overrides(args: argparse.Namespace, env: dict[str, str] | os._Environ[str] = os.environ) -> None:
     """Put the flags that were given into the environment, so the app reads one source of truth."""
     for attribute, variable in OVERRIDES.items():
@@ -343,5 +399,5 @@ def serve(args: argparse.Namespace) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    handlers = {"send": send, "tail": tail}
+    handlers = {"send": send, "tail": tail, "replay": replay}
     return handlers.get(args.command, serve)(args)

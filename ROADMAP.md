@@ -60,7 +60,7 @@ No backend: signatures are computed in the browser with Web Crypto.
 ## P3 Command-line tool (10)
 - [x] P3.01 `python -m hookscope serve` (uvicorn wrapper; flags override env)
 - [x] P3.02 `hookscope send <provider>` replaces `scripts/send_test_webhook.py`; all providers; scenarios: good, bad secret, tampered body, stale timestamp
-- [ ] P3.03 `hookscope tail`: follow events with `--source`, `--verification`, `--json`
+- [x] P3.03 `hookscope tail`: follow events with `--source`, `--verification`, `--json`
 - [ ] P3.04 `hookscope replay <id> --to URL`
 - [ ] P3.05 `hookscope verify`: check a saved request offline (provider, secret, body file, headers) and print the diagnosis
 - [ ] P3.06 `hookscope config`: effective settings with secrets masked

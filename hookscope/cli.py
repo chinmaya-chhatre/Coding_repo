@@ -1,26 +1,32 @@
-"""The ``hookscope`` command line: ``python -m hookscope serve`` and ``python -m hookscope send``.
+"""The ``hookscope`` command line: ``serve``, ``send`` and ``tail``.
 
-``send`` posts a signed sample delivery to a running HookScope, in one of four scenarios. ``serve``
-starts the app with uvicorn. Every setting still comes from the ``HOOKSCOPE_*`` environment
-variables; a flag, when given, overrides the matching variable for this run. Secrets are deliberately
-not flags (they would show up in the process list): set ``HOOKSCOPE_SECRET_<SOURCE>`` instead.
+``serve`` starts the app with uvicorn. ``send`` posts a signed sample delivery to a running HookScope in
+one of four scenarios. ``tail`` follows the events a running HookScope has stored.
+
+Every setting of ``serve`` still comes from the ``HOOKSCOPE_*`` environment variables; a flag, when
+given, overrides the matching variable for this run. Secrets are deliberately not flags (they would show
+up in the process list): set ``HOOKSCOPE_SECRET_<SOURCE>`` instead.
 """
 
 from __future__ import annotations
 
 import argparse
+import base64
+import json
 import os
 import sys
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from urllib.parse import urlencode
 
 from . import __version__
 from .config import ConfigError, Settings
 from .logs import LOG_FORMATS, LOG_LEVELS
 from .providers import PROVIDERS
+from .rules import event_type
 from .samples import SampleError, build_sample
 
 DEFAULT_HOST = "127.0.0.1"
@@ -82,6 +88,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="good: a valid delivery; bad-secret: signed with another secret; tampered: body changed "
         "after signing; stale-timestamp: signed an hour ago (Stripe, Slack, Svix); all: each in turn",
     )
+
+    tail = commands.add_parser(
+        "tail",
+        help="follow the events a running HookScope receives",
+        description="Print stored events as they arrive, oldest first. Set HOOKSCOPE_ADMIN_PASSWORD "
+        "when the server has a password (any user name is accepted).",
+    )
+    tail.add_argument("--url", default="http://127.0.0.1:8000", help="where HookScope runs")
+    tail.add_argument("--source", choices=sorted(PROVIDERS), help="only this provider")
+    tail.add_argument(
+        "--verification", choices=("valid", "invalid", "unsigned", "no_secret"), help="only this result"
+    )
+    tail.add_argument("--json", action="store_true", help="one JSON object per line, as the API returns it")
+    tail.add_argument("--last", type=int, default=10, help="events to show first (default 10, 0 for none)")
+    tail.add_argument("--interval", type=float, default=1.0, help="seconds between checks (default 1)")
+    tail.add_argument("--no-follow", action="store_true", help="show the last events and exit")
     return parser
 
 
@@ -165,6 +187,114 @@ def send(args: argparse.Namespace) -> int:
     return 1 if wrong else 0
 
 
+# --------------------------------------------------------------------------------------- tail
+
+PAGE = 50
+
+
+def get_json(url: str, headers: dict[str, str], timeout: float = 10.0) -> tuple[int | None, object]:
+    """GET and decode JSON: ``(status, data)``, or ``(None, reason)`` when HookScope cannot be reached."""
+    request = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.status, json.load(response)
+    except urllib.error.HTTPError as error:
+        return error.code, error.read().decode("utf-8", "replace")
+    except (OSError, ValueError) as error:
+        return None, str(error.reason if isinstance(error, urllib.error.URLError) else error)
+
+
+def auth_headers() -> dict[str, str]:
+    password = os.environ.get("HOOKSCOPE_ADMIN_PASSWORD")
+    if not password:
+        return {}
+    return {"Authorization": "Basic " + base64.b64encode(f"hookscope:{password}".encode()).decode()}
+
+
+class TailError(Exception):
+    """HookScope could not be asked: ``fatal`` errors (a wrong password) are not worth retrying."""
+
+    def __init__(self, message: str, fatal: bool = False) -> None:
+        super().__init__(message)
+        self.fatal = fatal
+
+
+def fetch_page(base: str, filters: dict[str, str], before_id: int | None, fetch: Callable) -> list[dict]:
+    query = {"limit": str(PAGE), **filters, **({"before_id": str(before_id)} if before_id else {})}
+    status, data = fetch(f"{base}/api/events?{urlencode(query)}", auth_headers())
+    if status is None:
+        raise TailError(f"could not reach {base}: {data}")
+    if status in (401, 403):
+        raise TailError("HookScope wants a password: set HOOKSCOPE_ADMIN_PASSWORD", fatal=True)
+    if status != 200 or not isinstance(data, list):
+        raise TailError(f"unexpected answer {status} from {base}/api/events", fatal=status < 500)
+    return data
+
+
+def newer_than(base: str, filters: dict[str, str], last_id: int, fetch: Callable) -> list[dict]:
+    """Every matching event with an id above ``last_id``, oldest first, however many arrived."""
+    found: list[dict] = []
+    before: int | None = None
+    while True:
+        page = fetch_page(base, filters, before, fetch)
+        fresh = [event for event in page if event["id"] > last_id]
+        found += fresh
+        if len(fresh) < PAGE or len(page) < PAGE:  # reached what was already shown (or the start)
+            break
+        before = page[-1]["id"]
+    return sorted(found, key=lambda event: event["id"])
+
+
+def format_event(event: dict) -> str:
+    """One line: id, time, source, result, event type and, for a rejected event, why."""
+    clock = str(event["received_at"])[11:19]
+    kind = event_type(event) or "-"
+    line = f"#{event['id']:<5} {clock}  {event['source']:8} {event['verification']:9} {kind}"
+    diagnosis = event.get("diagnosis")
+    if diagnosis:
+        line += f"  [{diagnosis['cause']}] {diagnosis['message']}"
+    elif event["verification"] in ("invalid", "unsigned") and event.get("reason"):
+        line += f"  {event['reason']}"
+    return line
+
+
+def tail(args: argparse.Namespace, fetch: Callable = get_json, sleep: Callable = time.sleep) -> int:
+    base = args.url.rstrip("/")
+    filters = {k: v for k, v in (("source", args.source), ("verification", args.verification)) if v}
+
+    def show(event: dict) -> None:
+        print(json.dumps(event) if args.json else format_event(event), flush=True)
+
+    try:
+        recent = fetch_page(base, filters, None, fetch)
+    except TailError as error:
+        print(f"hookscope: {error}", file=sys.stderr)
+        return 2 if error.fatal else 1
+    last_id = max((event["id"] for event in recent), default=0)
+    for event in sorted(recent, key=lambda event: event["id"])[-args.last :] if args.last > 0 else []:
+        show(event)
+    if args.no_follow:
+        return 0
+    warned = False
+    try:
+        while True:
+            sleep(args.interval)
+            try:
+                for event in newer_than(base, filters, last_id, fetch):
+                    show(event)
+                    last_id = max(last_id, event["id"])
+                warned = False
+            except TailError as error:
+                if error.fatal:
+                    print(f"hookscope: {error}", file=sys.stderr)
+                    return 2
+                if not warned:  # a restarting server is normal: say so once, keep trying
+                    print(f"hookscope: {error}; retrying", file=sys.stderr)
+                    warned = True
+    except KeyboardInterrupt:
+        return 0
+
+
 def apply_overrides(args: argparse.Namespace, env: dict[str, str] | os._Environ[str] = os.environ) -> None:
     """Put the flags that were given into the environment, so the app reads one source of truth."""
     for attribute, variable in OVERRIDES.items():
@@ -213,4 +343,5 @@ def serve(args: argparse.Namespace) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    return send(args) if args.command == "send" else serve(args)
+    handlers = {"send": send, "tail": tail}
+    return handlers.get(args.command, serve)(args)

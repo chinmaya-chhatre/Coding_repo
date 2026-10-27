@@ -87,11 +87,19 @@ deliberately not flags (they would show up in the process list): set `HOOKSCOPE_
 setting stops the start with every mistake listed (exit status 2). During development
 `uvicorn hookscope.main:app --reload` still works.
 
+`python -m hookscope send <provider>` posts a correctly signed sample to a running HookScope (`--url`, default
+`http://127.0.0.1:8000`) and prints the answer. `--scenario` picks what to send: `good` (default), `bad-secret`
+(signed with another secret), `tampered` (body changed after signing), `stale-timestamp` (signed an hour ago;
+Stripe, Slack and Svix only) or `all`. It signs with `--secret`, else `HOOKSCOPE_SECRET_<PROVIDER>`, else a
+demo value, and exits 0 when the answer is the expected one (`202` for good, `401` for the rest), so it works
+as a smoke test after a deploy.
+
 In another terminal, send a signed sample event, then open http://localhost:8000:
 
 ```bash
-python scripts/send_test_webhook.py github                 # 202, valid
-python scripts/send_test_webhook.py github --secret wrong  # 401, signature mismatch
+python -m hookscope send github                      # 202, valid
+python -m hookscope send github --scenario bad-secret  # 401, signature mismatch
+python -m hookscope send stripe --scenario all      # good, bad-secret, tampered, stale-timestamp
 ```
 
 ### Replaying an event
@@ -448,10 +456,10 @@ provider ──POST /hooks/{source}──▶ FastAPI ──▶ signatures.verify
 ```
 
 - `hookscope/signatures.py` — one pure function per provider, easy to unit test
-- `hookscope/cli.py` — the `hookscope` command line (`python -m hookscope serve`); flags override the `HOOKSCOPE_*` environment
+- `hookscope/cli.py` — the `hookscope` command line (`python -m hookscope serve` and `send`); `serve` flags override the `HOOKSCOPE_*` environment
 - `hookscope/troubleshooting.py` — generates `docs/troubleshooting.md`, the guide to every diagnosed cause, from the detector registry (`python -m hookscope.troubleshooting`); a test fails when the guide is out of date
 - `hookscope/diagnostics.py` — explains why a signature check failed (`Diagnosis(cause, message, fix)`): a registry of small detectors that runs only for rejected deliveries; detectors so far: a request sent to the wrong provider's endpoint (it carries another provider's headers), a body that was re-encoded on the way (re-verifies variants: compact or pretty JSON, key order, non-ASCII escaping, trailing newline, CRLF, BOM), a timestamp outside the window (Stripe, Slack, Svix: how many seconds old or in the future, and whether the clock or a replay is the likelier cause), a Twilio request whose signed URL differs from the one HookScope saw (scheme, host from a proxy's forwarding headers, trailing slash, port, query order; it says which URL was signed), a secret with a stray newline, whitespace or quotes, a signature made with the wrong algorithm or encoding (a SHA-1 digest, base64 where hex is expected, GitHub's older `X-Hub-Signature` only), a Stripe secret missing its `whsec_` prefix or a Svix secret with lost padding or URL-safe characters (and one that is not base64 at all), a missing signature header, and a general mismatch checklist; more are added one at a time
-- `hookscope/samples.py` — a signed example delivery per provider, behind `POST /api/providers/<name>/test` and `scripts/send_test_webhook.py`
+- `hookscope/samples.py` — a signed example delivery per provider, behind `POST /api/providers/<name>/test` and `python -m hookscope send`
 - `hookscope/providers.py` — the provider registry: each provider's verifier, URL-signing, timestamp header and event-type location in one object; adding a provider means adding one entry
 - `hookscope/store.py` — thin SQLite wrapper, indexed by receive time and source
 - `hookscope/schemas.py` — request and response models behind the OpenAPI document

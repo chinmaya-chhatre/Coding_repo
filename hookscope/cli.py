@@ -1,6 +1,7 @@
-"""The ``hookscope`` command line: ``python -m hookscope serve``.
+"""The ``hookscope`` command line: ``python -m hookscope serve`` and ``python -m hookscope send``.
 
-``serve`` starts the app with uvicorn. Every setting still comes from the ``HOOKSCOPE_*`` environment
+``send`` posts a signed sample delivery to a running HookScope, in one of four scenarios. ``serve``
+starts the app with uvicorn. Every setting still comes from the ``HOOKSCOPE_*`` environment
 variables; a flag, when given, overrides the matching variable for this run. Secrets are deliberately
 not flags (they would show up in the process list): set ``HOOKSCOPE_SECRET_<SOURCE>`` instead.
 """
@@ -10,12 +11,17 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
+import urllib.error
+import urllib.request
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from . import __version__
 from .config import ConfigError, Settings
 from .logs import LOG_FORMATS, LOG_LEVELS
 from .providers import PROVIDERS
+from .samples import SampleError, build_sample
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
@@ -57,7 +63,106 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="check the configuration, print what would run, and exit without starting",
     )
+
+    send = commands.add_parser(
+        "send",
+        help="send a signed sample delivery to a running HookScope",
+        description="Send a sample for a provider and print what HookScope answered. The exit status is 0 "
+        "when the answer is the one the scenario should get (202 for good, 401 for the others).",
+    )
+    send.add_argument("provider", choices=sorted(PROVIDERS))
+    send.add_argument("--url", default="http://127.0.0.1:8000", help="where HookScope runs")
+    send.add_argument(
+        "--secret", help="signing secret (default: HOOKSCOPE_SECRET_<PROVIDER>, else a demo value)"
+    )
+    send.add_argument(
+        "--scenario",
+        choices=[*SCENARIOS, "all"],
+        default="good",
+        help="good: a valid delivery; bad-secret: signed with another secret; tampered: body changed "
+        "after signing; stale-timestamp: signed an hour ago (Stripe, Slack, Svix); all: each in turn",
+    )
     return parser
+
+
+# --------------------------------------------------------------------------------------- send
+
+SCENARIOS = ("good", "bad-secret", "tampered", "stale-timestamp")
+STALE_SECONDS = 3_600
+DEMO_SECRETS = {"svix": "whsec_ZGV2LXNlY3JldC1kZXYtc2VjcmV0"}
+WRONG_SECRETS = {"svix": "whsec_d3Jvbmctc2VjcmV0LXdyb25n"}
+
+
+def demo_secret(provider: str) -> str:
+    return os.environ.get(f"HOOKSCOPE_SECRET_{provider.upper()}") or DEMO_SECRETS.get(provider, "dev-secret")
+
+
+@dataclass(frozen=True)
+class Outcome:
+    scenario: str
+    status: int | None
+    answer: str
+    expected: int
+
+    @property
+    def as_expected(self) -> bool:
+        return self.status == self.expected
+
+
+def post(url: str, body: bytes, headers: dict[str, str], timeout: float = 10.0) -> tuple[int | None, str]:
+    """POST and return ``(status, body text)``; ``(None, reason)`` when HookScope cannot be reached."""
+    request = urllib.request.Request(url, data=body, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.status, response.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as error:
+        return error.code, error.read().decode("utf-8", "replace")
+    except OSError as error:
+        return None, str(error.reason if isinstance(error, urllib.error.URLError) else error)
+
+
+def tamper(body: bytes) -> bytes:
+    """The body with its last byte changed: still signed, no longer the same message."""
+    return body[:-1] + (b"X" if body[-1:] != b"X" else b"Y")
+
+
+def scenario_request(
+    provider: str, scenario: str, secret: str, target: str
+) -> tuple[bytes, dict[str, str], int]:
+    """``(body, headers, expected HTTP status)`` for a scenario; ``SampleError`` if it does not apply."""
+    if scenario == "stale-timestamp" and PROVIDERS[provider].timestamp_from is None:
+        raise SampleError(f"{provider} signatures carry no timestamp, so there is nothing to make stale")
+    signing = WRONG_SECRETS.get(provider, "not-the-secret") if scenario == "bad-secret" else secret
+    now = time.time() - STALE_SECONDS if scenario == "stale-timestamp" else None
+    sample = build_sample(provider, signing, url=target, now=now)
+    body = tamper(sample.body) if scenario == "tampered" else sample.body
+    return body, sample.headers, 202 if scenario == "good" else 401
+
+
+def send(args: argparse.Namespace) -> int:
+    target = f"{args.url.rstrip('/')}/hooks/{args.provider}"
+    secret = args.secret or demo_secret(args.provider)
+    scenarios = SCENARIOS if args.scenario == "all" else (args.scenario,)
+    outcomes: list[Outcome] = []
+    for scenario in scenarios:
+        try:
+            body, headers, expected = scenario_request(args.provider, scenario, secret, target)
+        except SampleError as error:
+            if args.scenario != "all":
+                print(f"hookscope: {error}", file=sys.stderr)
+                return 2
+            print(f"{scenario:16} skipped: {error}")
+            continue
+        status, answer = post(target, body, headers)
+        outcomes.append(Outcome(scenario, status, answer, expected))
+        print(f"{scenario:16} {status if status is not None else 'no answer'}  {answer}")
+        if status is None:
+            print(f"hookscope: could not reach {target}", file=sys.stderr)
+            return 1
+    wrong = [o for o in outcomes if not o.as_expected]
+    for outcome in wrong:
+        print(f"hookscope: {outcome.scenario} should have been {outcome.expected}", file=sys.stderr)
+    return 1 if wrong else 0
 
 
 def apply_overrides(args: argparse.Namespace, env: dict[str, str] | os._Environ[str] = os.environ) -> None:
@@ -108,4 +213,4 @@ def serve(args: argparse.Namespace) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    return serve(args)  # "serve" is the only command so far
+    return send(args) if args.command == "send" else serve(args)
